@@ -78,10 +78,10 @@ class Neural_Network():
                 #ERROR
                 print('input_dims param must be given because layer is first in network')
             else:
-                self.layers.append(Layer.Flatten(input_dims=input_dims))
+                self.layers.append(Layer.Flatten(input_dims=input_dims, device=self._device))
 
         else:
-            self.layers.append(Layer.Flatten(input_dims=self.layers[-1]._output_dims))
+            self.layers.append(Layer.Flatten(input_dims=self.layers[-1]._output_dims, device=self._device))
         
     
     def add_Dropout(self, dropout_rate, input_dims=None, output_size=None):
@@ -93,10 +93,10 @@ class Neural_Network():
                 #ERROR
                 print('input_dims param must be given because layer is first in network')
             else:
-                self.layers.append(Layer.Dropout(dropout_rate=dropout_rate, input_dims=input_dims, output_size = input_dims))
+                self.layers.append(Layer.Dropout(dropout_rate=dropout_rate, input_dims=input_dims, output_size = input_dims, device=self._device))
 
         else:
-            self.layers.append(Layer.Dropout(dropout_rate=dropout_rate, input_dims=self.layers[-1]._output_dims, output_size = self.layers[-1]._output_dims))
+            self.layers.append(Layer.Dropout(dropout_rate=dropout_rate, input_dims=self.layers[-1]._output_dims, output_size = self.layers[-1]._output_dims, device=self._device))
         
         
     def add_Pool(self, pool_size=2, stride=2, method='max', input_dims=None):
@@ -108,10 +108,10 @@ class Neural_Network():
                 #ERROR
                 print('input_dims param must be given because layer is first in network')
             else:
-                self.layers.append(Layer.Pool(pool_size=pool_size, stride=stride, method=method, input_dims=input_dims))
+                self.layers.append(Layer.Pool(pool_size=pool_size, stride=stride, method=method, input_dims=input_dims, device=self._device))
                 
         else:
-            self.layers.append(Layer.Pool(pool_size=pool_size, stride=stride, method=method, input_dims=self.layers[-1]._output_dims))
+            self.layers.append(Layer.Pool(pool_size=pool_size, stride=stride, method=method, input_dims=self.layers[-1]._output_dims, device=self._device))
         
         
     def add_Activation(self, activation, input_dims=None):
@@ -220,8 +220,25 @@ class Neural_Network():
         Parameters:
         data: [(x_train, y_train),(x_val, y_val)]; array of tuples of x and y data for train and validation sets
         """
+
+        ## Convert to cupy arrays if gpu==True
+        for i in range(len(data)):
+            x, y = data[i]
+            if type(x) == np.ndarray:
+                x = cp.asarray(x)
+                data[i] = (x, data[i][1])  # Repack the tuple with updated x
+                print(f'x data converted to type {type(data[i][0])}')
+            if type(y) == np.ndarray:
+                y = cp.asarray(y)
+                data[i] = (data[i][0], y)  # Repack the tuple with updated y
+                print(f'y data converted to type {type(data[i][1])}')
+
         # sets data to self.data
         self.data = data
+
+        for x, y in self.data:
+            print(f'x data type {type(x)}')
+            print(f'y data type {type(y)}')
         
         # set all layers names to be unique (self.name+index)
         for name in set([layer.name for layer in self.layers if (isinstance(layer, Layer.Layer)) and (hasattr(layer, 'name'))]):
