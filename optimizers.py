@@ -1,7 +1,14 @@
 import numpy as np
+import cupy as cp
 
 class Optimizer():
     # base class for optimizers
+    def __init__(self, device='CPU'):
+        self._device = device
+        if self._device == 'CPU':
+            self._xp = np
+        elif self._device == 'GPU':
+            self._xp = cp
     
     def pre_update_params():
         pass
@@ -18,7 +25,8 @@ class SGD(Optimizer):
     Stochastic Gradient Descent Optimization
     """
     
-    def __init__(self, learning_rate=.01, decay=0, momentum=0):
+    def __init__(self, learning_rate=.01, decay=0, momentum=0, device='CPU'):
+        super().__init__(device)
         self.name = 'SGD'
         self.learning_rate = learning_rate
         self.current_learning_rate = learning_rate
@@ -40,8 +48,8 @@ class SGD(Optimizer):
             # check if layer doesn't have momentum gradients attributes initialized for weights and bias and if not create them
             if not hasattr(Layer, 'weights_momentum'):
                 # create weights_momentum and bias_momentum attributes for layer
-                Layer.weight_momentum = np.zeros_like(Layer.weights)
-                Layer.bias_momentum = np.zeros_like(Layer.bias)
+                Layer.weight_momentum = self._xp.zeros_like(Layer.weights)
+                Layer.bias_momentum = self._xp.zeros_like(Layer.bias)
             # return weight and bias updates using momentum
             return (self.momentum * Layer.weight_momentum) - (Layer.weights - (self.current_learning_rate * Layer.weight_gradient)), (self.momentum * Layer.bias_momentum) - (Layer.bias - (self.current_learning_rate * Layer.bias_gradient))
         # if momentum not being used
@@ -55,7 +63,8 @@ class Adagrad(Optimizer):
     Adaptive Gradient Optimization
     """
     
-    def __init__(self, learning_rate=0.1, decay=0, epsilon=1e-7):
+    def __init__(self, learning_rate=0.1, decay=0, epsilon=1e-7, device='CPU'):
+        super().__init__(device)
         self.name = 'Adagrad'
         self.learning_rate = learning_rate
         self.current_learning_rate = learning_rate
@@ -69,15 +78,15 @@ class Adagrad(Optimizer):
     def update_params(self, Layer):
         # initialize cache attribute if hasn't already been
         if not hasattr(Layer, 'weight_cache'):
-            Layer.weight_cache = np.zeros_like(Layer.weights)
-            Layer.bias_cache = np.zeros_like(Layer.bias)
+            Layer.weight_cache = self._xp.zeros_like(Layer.weights)
+            Layer.bias_cache = self._xp.zeros_like(Layer.bias)
         
         # update cache values    
         Layer.weight_cache += Layer.weight_gradient**2
         Layer.bias_cache += Layer.bias_gradient**2
         
         # return updates to weight and bias parameters
-        return Layer.weights - (self.current_learning_rate * Layer.weight_gradient / (np.sqrt(Layer.weight_cache) + self.epsilon)), Layer.bias - (self.current_learning_rate * Layer.bias_gradient / (np.sqrt(Layer.bias_cache) + self.epsilon))
+        return Layer.weights - (self.current_learning_rate * Layer.weight_gradient / (self._xp.sqrt(Layer.weight_cache) + self.epsilon)), Layer.bias - (self.current_learning_rate * Layer.bias_gradient / (self._xp.sqrt(Layer.bias_cache) + self.epsilon))
     
 
 class RMSprop(Optimizer):
@@ -85,7 +94,8 @@ class RMSprop(Optimizer):
     Root Mean Square Propogation Optimization
     """
     
-    def __init__(self, learning_rate=1e-3, decay=0, epsilon=1e-7, cache_decay=0.999):
+    def __init__(self, learning_rate=1e-3, decay=0, epsilon=1e-7, cache_decay=0.999, device='CPU'):
+        super().__init__(device)
         self.name = 'RMSprop'
         self.learning_rate = learning_rate
         self.current_learning_rate = learning_rate
@@ -100,15 +110,15 @@ class RMSprop(Optimizer):
     def update_params(self, Layer):
         # initialize cache attribute if hasn't already been
         if not hasattr(Layer, 'weight_cache'):
-            Layer.weight_cache = np.zeros_like(Layer.weights)
-            Layer.bias_cache = np.zeros_like(Layer.bias)
+            Layer.weight_cache = self._xp.zeros_like(Layer.weights)
+            Layer.bias_cache = self._xp.zeros_like(Layer.bias)
             
         # update cache values
         Layer.weight_cache = (self.cache_decay * Layer.weight_cache) + ((1 - self.cache_decay) * Layer.weight_gradient**2)
         Layer.bias_cache = (self.cache_decay * Layer.bias_cache) + ((1 - self.cache_decay) * Layer.bias_gradient**2)
         
         # return updates to weight and bias parameters
-        return Layer.weights - (self.current_learning_rate * Layer.weight_gradient / (np.sqrt(Layer.weight_cache) + self.epsilon)), Layer.bias - (self.current_learning_rate * Layer.bias_gradient / (np.sqrt(Layer.bias_cache) + self.epsilon)) 
+        return Layer.weights - (self.current_learning_rate * Layer.weight_gradient / (self._xp.sqrt(Layer.weight_cache) + self.epsilon)), Layer.bias - (self.current_learning_rate * Layer.bias_gradient / (self._xp.sqrt(Layer.bias_cache) + self.epsilon)) 
     
 
 class Adam(Optimizer):
@@ -116,7 +126,8 @@ class Adam(Optimizer):
     Adaptive Momentum Optimizer
     """
     
-    def __init__(self, learning_rate=1e-3, decay=0, epsilon=1e-7, momentum=0.9, cache_decay=0.999):
+    def __init__(self, learning_rate=1e-3, decay=0, epsilon=1e-7, momentum=0.9, cache_decay=0.999, device='CPU'):
+        super().__init__(device)
         self.name = 'Adam'
         self.learning_rate = learning_rate
         self.current_learning_rate = learning_rate
@@ -133,10 +144,10 @@ class Adam(Optimizer):
     def update_params(self, Layer):
         # initialize cache and momentum attributes if haven't been
         if not hasattr(Layer, 'weight_cache'):
-            Layer.weight_momentum = np.zeros_like(Layer.weights)
-            Layer.bias_momentum = np.zeros_like(Layer.bias)
-            Layer.weight_cache = np.zeros_like(Layer.weights)
-            Layer.bias_cache = np.zeros_like(Layer.bias)
+            Layer.weight_momentum = self._xp.zeros_like(Layer.weights)
+            Layer.bias_momentum = self._xp.zeros_like(Layer.bias)
+            Layer.weight_cache = self._xp.zeros_like(Layer.weights)
+            Layer.bias_cache = self._xp.zeros_like(Layer.bias)
             
         # update momentums
         Layer.weight_momentum = (self.momentum * Layer.weight_momentum) + ((1-self.momentum) * Layer.weight_gradient)
@@ -155,7 +166,7 @@ class Adam(Optimizer):
         corrected_bias_cache = Layer.bias_cache / (1 - self.cache_decay**(self.iteration + 1))
         
         # return updated weight and bias parameters
-        return Layer.weights - self.current_learning_rate * corrected_weight_momentum / (np.sqrt(corrected_weight_cache) + self.epsilon), Layer.bias - self.learning_rate * corrected_bias_momentum / (np.sqrt(corrected_bias_cache) + self.epsilon)
+        return Layer.weights - self.current_learning_rate * corrected_weight_momentum / (self._xp.sqrt(corrected_weight_cache) + self.epsilon), Layer.bias - self.current_learning_rate * corrected_bias_momentum / (self._xp.sqrt(corrected_bias_cache) + self.epsilon)
     
     def post_update_params(self):
         self.iteration += 1

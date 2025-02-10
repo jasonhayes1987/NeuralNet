@@ -8,17 +8,24 @@ Original file is located at
 """
 
 import numpy as np
+import cupy as cp
 
 # stores all loss errors to be passed to the network
 
 class Loss():
-  # base class for losses
+    # base class for losses
+    def __init__(self, device='CPU'):
+        self._device = device
+        if self._device == 'CPU':
+            self._xp = np
+        elif self._device == 'GPU':
+            self._xp = cp
 
     def calculate(self, targets, output):
 #         print('loss.calculate fired...')
         
         loss = self.forward(targets, output)
-        mean_loss = np.mean(loss)
+        mean_loss = self._xp.mean(loss)
         return mean_loss
     
     def regularization_loss(self, Layer):
@@ -32,23 +39,24 @@ class Loss():
         
         # if layers L1 parameter > 0, calculate layers L1 loss
         if Layer.L1_regularizer > 0:
-            L1_loss += Layer.L1_regularizer * np.sum(np.abs(Layer.weights))
-            L1_loss += Layer.L1_regularizer * np.sum(np.abs(Layer.bias))
+            L1_loss += Layer.L1_regularizer * self._xp.sum(self._xp.abs(Layer.weights))
+            L1_loss += Layer.L1_regularizer * self._xp.sum(self._xp.abs(Layer.bias))
             
         if Layer.L2_regularizer > 0:
-            L2_loss += Layer.L2_regularizer * np.sum(Layer.weights**2)
-            L2_loss += Layer.L2_regularizer * np.sum(Layer.bias**2)
+            L2_loss += Layer.L2_regularizer * self._xp.sum(Layer.weights**2)
+            L2_loss += Layer.L2_regularizer * self._xp.sum(Layer.bias**2)
             
         return L1_loss, L2_loss
 
 
 class Mean_Squared_Error(Loss):
     
-    def __init__(self):
+    def __init__(self, device='CPU'):
+        super().__init__(device)
         self.name = 'MSE'
 
     def forward(self, targets, output):
-        output = np.power(output - targets, 2)
+        output = self._xp.power(output - targets, 2)
         return output
 
     def backward(self, targets, predictions):
@@ -58,20 +66,36 @@ class Mean_Squared_Error(Loss):
 
 class Sparse_Categorical_Cross_Entropy(Loss):
     
-    def __init__(self):
+    def __init__(self, device='CPU'):
+        super().__init__(device)
         self.name = 'Sparse CXE'
     
     def forward(self, targets, output):
         targets = targets.flatten()
-        cce = -np.log(output[range(len(output)), targets])      
+        # Compute cross entropy loss for each sample:
+        cce = -self._xp.log(output[range(len(output)), targets] + 1e-8)
+        #DEBUG
+        # print('CCE forward')
+        # print(f'targets:{targets}')
+        # print(f'output:{output}')
+        # print(f'cce:{cce}')
+        # print('')   
         return cce
     
     def backward(self, targets, output):
         targets = targets.flatten()
         samples = len(output)
         labels = len(output[0])
-        targets = np.eye(labels)[targets]
-        self.input_gradient = -targets / output
-        self.input_gradient = self.input_gradient / samples
+        one_hot = self._xp.eye(labels)[targets]
+        # Standard gradient: softmax output minus one-hot target, averaged over the batch
+        self.input_gradient = (output - one_hot) / samples
+        #DEBUG
+        # print('CCE backward')
+        # print(f'samples:{samples}')
+        # print(f'targets:{targets}')
+        # print(f'one_hot:{one_hot}')
+        # print(f'output:{output}')
+        # print(f'input_gradient:{self.input_gradient}')
+        # print('')
         return self.input_gradient
 

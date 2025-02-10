@@ -37,7 +37,7 @@ class Neural_Network():
         self.layers = []
 
         
-    def add_Dense(self, output_size, L1_regularization=0, L2_regularization=0, input_dims=None):
+    def add_Dense(self, output_size, L1_regularization=0, L2_regularization=0, init='Default', input_dims=None):
         """
         Adds a Dense layer to the network
         **Only requires input_size param if first layer in network**
@@ -47,13 +47,13 @@ class Neural_Network():
                 #ERROR
                 print('input_size param must be given because layer is first in network')
             else:
-                self.layers.append(Layer.Dense(output_size=output_size, L1_regularizer=L1_regularization, L2_regularizer=L2_regularization, input_dims=input_dims, device=self._device))
+                self.layers.append(Layer.Dense(output_size=output_size, L1_regularizer=L1_regularization, L2_regularizer=L2_regularization, input_dims=input_dims, device=self._device, init=init))
                 
         else:
-            self.layers.append(Layer.Dense(output_size=output_size, L1_regularizer=L1_regularization, L2_regularizer=L2_regularization, input_dims=self.layers[-1]._output_dims, device=self._device))
+            self.layers.append(Layer.Dense(output_size=output_size, L1_regularizer=L1_regularization, L2_regularizer=L2_regularization, input_dims=self.layers[-1]._output_dims, device=self._device, init=init))
 
 
-    def add_Convolutional(self, kernel_size, depth, mode, input_dims=None):
+    def add_Convolutional(self, kernel_size, depth, mode, init='Default', input_dims=None):
         """
         Adds a Convolutional layer to the network
         **Only requires input_dims param if first layer in network**
@@ -63,9 +63,9 @@ class Neural_Network():
                 #ERROR
                 print('input_dims param must be given because layer is first in network')
             else:
-                self.layers.append(Layer.Convolutional(kernel_size=kernel_size, depth=depth, mode=mode, input_dims=input_dims, device=self._device))
+                self.layers.append(Layer.Convolutional(kernel_size=kernel_size, depth=depth, mode=mode, input_dims=input_dims, device=self._device, init=init))
         else:
-            self.layers.append(Layer.Convolutional(kernel_size=kernel_size, depth=depth, mode=mode, input_dims=self.layers[-1]._output_dims, device=self._device))
+            self.layers.append(Layer.Convolutional(kernel_size=kernel_size, depth=depth, mode=mode, input_dims=self.layers[-1]._output_dims, device=self._device, init=init))
     
     
     def add_Flatten(self, input_dims=None):
@@ -112,6 +112,21 @@ class Neural_Network():
                 
         else:
             self.layers.append(Layer.Pool(pool_size=pool_size, stride=stride, method=method, input_dims=self.layers[-1]._output_dims, device=self._device))
+
+    
+    def add_BatchNorm(self, momentum=0.9, epsilon=1e-5, input_dims=None):
+        """
+        Adds a Pooling layer to the network
+        """
+        if len(self.layers) == 0:
+            if input_dims == None:
+                #ERROR
+                print('input_dims param must be given because layer is first in network')
+            else:
+                self.layers.append(Layer.BatchNormalization(momentum=momentum, epsilon=epsilon, input_dims=input_dims, device=self._device))
+                
+        else:
+            self.layers.append(Layer.BatchNormalization(momentum=momentum, epsilon=epsilon, input_dims=self.layers[-1]._output_dims, device=self._device))
         
         
     def add_Activation(self, activation, input_dims=None):
@@ -211,6 +226,10 @@ class Neural_Network():
         if metrics is not None:
             self.metrics = metrics
         self._device = device
+        if self._device == 'CPU':
+            self._xp = np
+        elif self._device == 'GPU':
+            self._xp = cp
 
        
     def train(self, data, epochs, batch_size, visualize=False, gpu=False):  
@@ -456,12 +475,16 @@ class Neural_Network():
         return metrics
  
 
-    def predict(self, x):
-        # predicts and returns output 'x' from input 'x'
-        y = x
-        for layer in self.layers:
-            y = layer.forward(y, is_training=False)
-        return y
+    def predict(self, x, batch_size=32):
+        outputs = []
+        N = x.shape[0]
+        for i in range(0, N, batch_size):
+            x_batch = x[i:i+batch_size]
+            y_batch = x_batch
+            for layer in self.layers:
+                y_batch = layer.forward(y_batch, is_training=False)
+            outputs.append(y_batch)
+        return self._xp.concatenate(outputs, axis=0)
 
     
     def get_parameters(self):

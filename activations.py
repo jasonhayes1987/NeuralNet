@@ -16,6 +16,10 @@ from layer import Activation, Layer
 # Stores all the activation functions that can be passed to the activation layer
 
 class Tanh(Activation):
+
+    def __init__(self, input_dims=None, device='CPU'):
+        super().__init__(self, input_dims, device)
+        self.name = 'Tanh'
     
     def compute(self):
     # computes and returns the hyperbolic tangent of the input
@@ -34,30 +38,24 @@ class Tanh(Activation):
 #         print(f'---output shape: {output.shape}')
 #         print('')
         return output
-
-    def __init__(self, input_dims=None, device=None):
-        super().__init__(self, input_dims, device)
-        self.name = 'Tanh'
         
 class Softmax(Layer):
     
-    def __init__(self, input_dims=None, device=None):
+    def __init__(self, input_dims=None, device='CPU'):
+        super().__init__(device)
         self.name = 'Softmax'
-        if device == 'CPU':
-            self._xp = np
-        elif device == 'GPU':
-            self._xp = cp
         self._input_dims = input_dims
         self._output_dims = input_dims
     
     def forward(self, x, is_training=True):
-#         print('Softmax compute fired...')
-#         print(f'---input shape: {x.shape}')
+        # print(f'Softmax input:{x}')
+        # print(f'---input shape: {x.shape}')
         self.input = x
-        exp = self._xp.exp(self.input)
+        x_max = self.input.max(axis=1, keepdims=True)
+        exp = self._xp.exp(self.input - x_max)
         self.output = exp / self._xp.sum(exp, axis=1, keepdims=True)
-#         print(f'output shape: {self.output.shape}')
-#         print('')
+        # print(f'softmax output: {self.output}')
+        # print('')
         return self.output
     
     def backward(self, output_gradient, optimizer):
@@ -74,6 +72,10 @@ class Softmax(Layer):
         return self.input_gradient
     
 class Relu(Activation):
+
+    def __init__(self, input_dims=None, device='CPU'):
+        super().__init__(self, input_dims, device)
+        self.name = 'Relu'
     
     def compute(self):
         output = self._xp.maximum(self.input, self._xp.zeros_like(self.input))
@@ -88,11 +90,12 @@ class Relu(Activation):
 #         print(output)
         return output
 
-    def __init__(self, input_dims=None, device=None):
-        super().__init__(self, input_dims, device)
-        self.name = 'Relu'
-
 class Elu(Activation):
+
+    def __init__(self, alpha=1, input_dims=None, device='CPU'):
+        super().__init__(self, input_dims, device)
+        self.name = 'Elu'
+        self.alpha = alpha
     
     def compute(self):
         shape = self.input.shape
@@ -106,12 +109,11 @@ class Elu(Activation):
         output = [1 if i>0 else self.alpha*self._xp.exp(i) for i in x]
         return self._xp.array(output).reshape(shape)
     
-    def __init__(self, alpha=1, input_dims=None, device=None):
-        super().__init__(self, input_dims, device)
-        self.name = 'Elu'
-        self.alpha = alpha
-    
 class Gelu(Activation):
+
+    def __init__(self, input_dims=None, device='CPU'):
+        super().__init__(self, input_dims, device)
+        self.name = 'Gelu'
     
     def compute(self):
         shape = self.input.shape
@@ -124,12 +126,12 @@ class Gelu(Activation):
         x = self.input.flatten()
         output = ((1.0 + erf(x / np.sqrt(2.0))) / 2.0) + np.multiply(x, norm.pdf(x))
         return self._xp.array(output).reshape(shape)
-    
-    def __init__(self, input_dims=None, device=None):
-        super().__init__(self, input_dims, device)
-        self.name = 'Gelu'
 
 class Sigmoid(Activation):
+
+    def __init__(self, input_dims=None, device='CPU'):
+        super().__init__(self, input_dims, device)
+        self.name = 'Sigmoid'
     
     def compute(self):
         output = 1/(1+self._xp.exp(-self.input))
@@ -138,8 +140,4 @@ class Sigmoid(Activation):
     def derivative(self):
         output = self.output * (1 - self.output)
         return output
-    
-    def __init__(self, input_dims=None, device=None):
-        super().__init__(self, input_dims, device)
-        self.name = 'Sigmoid'
 

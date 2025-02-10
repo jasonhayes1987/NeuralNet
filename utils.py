@@ -15,6 +15,98 @@ from sklearn.metrics import confusion_matrix
 import itertools
 from glob import glob
 
+def im2col(input_data, filter_h, filter_w, stride=1, pad=0, xp=np):
+    """
+    Rearranges image blocks into columns.
+    Input:
+      - input_data: shape (N, C, H, W)
+      - filter_h, filter_w: filter height and width
+      - stride: stride for the convolution
+      - pad: amount of zero-padding
+      - xp: either np (CPU) or cp (GPU)
+    Returns:
+      - col: 2D array of shape (N*out_h*out_w, C*filter_h*filter_w)
+    """
+    N, C, H, W = input_data.shape
+
+    # Determine padding for height and width
+    if isinstance(pad, int):
+        # Use symmetric padding if pad is an int
+        pad_h = (pad, pad)
+        pad_w = (pad, pad)
+    else:
+        # Assume pad is a tuple of tuples: ((pad_top, pad_bottom), (pad_left, pad_right))
+        pad_h, pad_w = pad
+
+    # Pad the input
+    img = xp.pad(input_data, ((0, 0), (0, 0), pad_h, pad_w), mode='constant')
+
+    # Compute the output dimensions using the new padding amounts:
+    out_h = (H + sum(pad_h) - filter_h) // stride + 1
+    out_w = (W + sum(pad_w) - filter_w) // stride + 1
+    
+    # Prepare a container for the patches
+    col = xp.empty((N, C, filter_h, filter_w, out_h, out_w), dtype=input_data.dtype)
+    
+    for y in range(filter_h):
+        y_max = y + stride * out_h
+        for x in range(filter_w):
+            x_max = x + stride * out_w
+            col[:, :, y, x, :, :] = img[:, :, y:y_max:stride, x:x_max:stride]
+    
+    # Rearrange so that each patch becomes a row
+    col = col.transpose(0, 4, 5, 1, 2, 3).reshape(N * out_h * out_w, -1)
+    return col
+
+
+def col2im(col, input_shape, filter_h, filter_w, stride=1, pad=0, xp=np):
+    """
+    Converts column representation back into image blocks.
+    Input:
+      - col: 2D array from im2col with shape (N*out_h*out_w, C*filter_h*filter_w)
+      - input_shape: shape (N, C, H, W) of the original input data
+      - filter_h, filter_w: filter dimensions
+      - stride, pad: convolution parameters. If pad is an int, symmetric padding is assumed.
+                   If pad is a tuple of tuples, it should be ((pad_top, pad_bottom), (pad_left, pad_right)).
+      - xp: either np or cp
+    Returns:
+      - An array with shape (N, C, H, W)
+    """
+    N, C, H, W = input_shape
+
+    # Determine padding for height and width.
+    if isinstance(pad, int):
+        pad_h = (pad, pad)
+        pad_w = (pad, pad)
+    else:
+        # Assume pad is a tuple of tuples: ((pad_top, pad_bottom), (pad_left, pad_right))
+        pad_h, pad_w = pad
+
+    # Compute the output (padded) dimensions.
+    out_h = (H + sum(pad_h) - filter_h) // stride + 1
+    out_w = (W + sum(pad_w) - filter_w) // stride + 1
+
+    # Reshape col into shape (N, out_h, out_w, C, filter_h, filter_w)
+    # Then transpose to bring channels to the correct place.
+    col = col.reshape(N, out_h, out_w, C, filter_h, filter_w).transpose(0, 3, 4, 5, 1, 2)
+
+    # Instantiate an array for the padded image.
+    padded_H = H + sum(pad_h) + stride - 1
+    padded_W = W + sum(pad_w) + stride - 1
+    img = xp.zeros((N, C, padded_H, padded_W), dtype=col.dtype)
+
+    # Add up the contributions from col into the zeros array.
+    for y in range(filter_h):
+        y_max = y + stride * out_h
+        for x in range(filter_w):
+            x_max = x + stride * out_w
+            img[:, :, y:y_max:stride, x:x_max:stride] += col[:, :, y, x, :, :]
+
+    # Remove the padding.
+    # Here we use pad_h[0] for the top and pad_w[0] for the left.
+    return img[:, :, pad_h[0]:H + pad_h[0], pad_w[0]:W + pad_w[0]]
+
+
 # store functions used for processing data
 
 def train_test_split(x, y, split=0.2):

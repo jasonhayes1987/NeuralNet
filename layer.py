@@ -11,11 +11,12 @@ import numpy as np
 from scipy import signal
 import cupy as cp
 from cupyx.scipy import signal as c_signal
+from utils import im2col, col2im
 
 # base layer class
 
 class Layer:
-    def __init__(self, device=None):
+    def __init__(self, device='CPU'):
         self._device = device
         if self._device == 'CPU':
             self._xp = np
@@ -38,7 +39,7 @@ class Layer:
 # class for Activation layers
 # inherits from layer
 class Activation(Layer):
-    def __init__(self, activation, input_dims=None, device=None):
+    def __init__(self, activation, input_dims=None, device='CPU'):
         super().__init__(device)
         self.activation = activation
         self.name = 'Activation'
@@ -68,15 +69,27 @@ class Activation(Layer):
 # class for Dense layers
 # inherits from layer
 class Dense(Layer):
-    
-    def __init__(self, output_size, L1_regularizer=0, L2_regularizer=0, input_dims=None, device=None):
+    def __init__(self, output_size, L1_regularizer=0, L2_regularizer=0, input_dims=None, device='CPU', init='Default'):
         super().__init__(device)
         self.name = 'Dense'
         self._input_dims = input_dims
         self._output_dims = output_size
-        self.weights = self._xp.random.randn(self._input_dims, self._output_dims)
-        self.bias = self._xp.random.randn(self._output_dims)
         
+        if init == 'Xavier':
+            # Xavier/Glorot initialization
+            fan_in = input_dims
+            fan_out = output_size
+            limit = np.sqrt(6.0 / (fan_in + fan_out))
+            self.weights = self._xp.random.uniform(-limit, limit, (self._input_dims, self._output_dims))
+        elif init == 'He':
+            # He initialization
+            fan_in = input_dims
+            self.weights = self._xp.random.randn(self._input_dims, self._output_dims) * np.sqrt(2.0 / fan_in)
+        else:
+            # Default: standard normal
+            self.weights = self._xp.random.randn(self._input_dims, self._output_dims)
+            
+        self.bias = self._xp.random.randn(output_size)
         self.L1_regularizer = L1_regularizer
         self.L2_regularizer = L2_regularizer
     
@@ -116,6 +129,16 @@ class Dense(Layer):
             # update bias gradient
             self.bias_gradient += 2 * (self.L2_regularizer * self.bias)
 
+        #DEBUG
+        weight_grad_norm = self._xp.linalg.norm(self.weight_gradient)
+        bias_grad_norm = self._xp.linalg.norm(self.bias_gradient)
+        if self._device == 'GPU':
+            print(f'Dense weight grad norm: {weight_grad_norm.get()}')
+            print(f'Dense bias grad norm: {bias_grad_norm.get()}')
+        else:
+            print(f'Dense weight grad norm: {weight_grad_norm}')
+            print(f'Dense bias grad norm: {bias_grad_norm}')
+
 
         input_gradient = self._xp.dot(output_gradient, self.weights.T)
 
@@ -150,7 +173,7 @@ class Dense(Layer):
 # inherits from Layer
 class Dropout(Layer):
     
-    def __init__(self, dropout_rate, input_dims=None, output_size=None, device=None):
+    def __init__(self, dropout_rate, input_dims=None, output_size=None, device='CPU'):
         super().__init__(device)
         self.name = 'Dropout'
         self.keep_rate = 1 - dropout_rate
@@ -176,15 +199,7 @@ class Dropout(Layer):
 # Class for Convolutional layers
 # inherits from Layer
 class Convolutional(Layer):
-    """
-    Layer for performing convolution on input data using (depth) amount of kernels of size (kernel_size)
-    
-    INPUT:
-    input_shape: tuple; (input_depth, input_height, input_width); dimensions of each input; input_depth = number of layers in zed dimension
-    kernel_size = int; height and width of kernel matrix (always square)
-    depth: int; number of kernels
-    """
-    def __init__(self, kernel_size, depth, mode, input_dims=None, device=None):
+    def __init__(self, kernel_size, depth, mode, input_dims=None, device='CPU', init='default'):
         super().__init__(device)
         self.name = 'Convolutional'
         _input_depth, _input_height, _input_width = input_dims
@@ -192,63 +207,102 @@ class Convolutional(Layer):
         self._input_dims = input_dims
         self._input_depth = _input_depth
         self._kernels_shape = (self._depth, self._input_depth, kernel_size, kernel_size)
-        self.kernels = self._xp.random.randn(*self._kernels_shape)
+        
+        # Compute fan-in and fan-out for the convolution
+        fan_in = _input_depth * kernel_size * kernel_size
+        fan_out = depth * kernel_size * kernel_size
+        
+        if init == 'Xavier':
+            limit = np.sqrt(6.0 / (fan_in + fan_out))
+            self.weights = self._xp.random.uniform(-limit, limit, self._kernels_shape)
+        elif init == 'He':
+            self.weights = self._xp.random.randn(*self._kernels_shape) * np.sqrt(2.0 / fan_in)
+        else:
+            self.weights = self._xp.random.randn(*self._kernels_shape)
+        
         self.mode = mode
-        # determine output shape depending on 'mode'
         if self.mode == 'valid':
             self._output_dims = (self._depth, _input_height - kernel_size + 1, _input_width - kernel_size + 1)
         elif self.mode == 'same':
             self._output_dims = (self._depth, _input_height, _input_width)
-        self.biases = self._xp.random.randn(*self._output_dims)
-        
-        
+            
+        self.bias = self._xp.random.randn(self._depth)
+        # print(f'kernels shape:{self._kernels_shape}')
+
+    def compute_asymmetric_padding(self):
+        kernel_size = self._kernels_shape[2]
+        pad_total = kernel_size - 1
+        pad_before = pad_total // 2
+        pad_after = pad_total - pad_before
+        return (pad_before, pad_after)
+
     def forward(self, input, is_training=True):
         self.input = input
-        # print(f'conv forward input shape:{self.input.shape}')
-        self.output = self._xp.zeros((input.shape[0], *self._output_dims))  
-        self.output += self._xp.repeat(self.biases[self._xp.newaxis, :, :, :], self.input.shape[0], axis=0)
-        # print(f'conv forward output shape:{self.output.shape}')
-        for n in range(self.input.shape[0]):
-            for i in range(self._depth):
-                # print(f'i:{i}')
-                for j in range(self._input_depth):
-                    # print(f'j:{j}')
-                    if self._device == 'CPU':
-                        # Correct indexing for output
-                        self.output[n, i, :, :] += signal.correlate2d(self.input[n, j], self.kernels[i, j], mode=self.mode) 
-                    elif self._device == 'GPU':
-                        self.output[n, i, :, :] += c_signal.correlate2d(self.input[n, j], self.kernels[i, j], mode=self.mode) 
-        
+        if self.mode == 'same':
+            pad_tuple = self.compute_asymmetric_padding()
+            self.pad = (pad_tuple, pad_tuple)  # For both height and width
+        else:
+            self.pad = 0
+        self.output = self.conv_forward_im2col(self.input, self.weights, self.bias, stride=1, pad=self.pad)
         return self.output
-
 
     def backward(self, output_gradient, optimizer):
         self.output_gradient = output_gradient
-        self.kernels_gradient = self._xp.zeros(self._kernels_shape)
-        input_gradient = self._xp.zeros(self.input.shape)
-        
-        # compute kernel and input gradients
-        for n in range(self.input.shape[0]):
-            for i in range(self._depth):
-                for j in range(self._input_depth):
-                    if self._device == 'CPU':
-                        self.kernels_gradient[i,j] = signal.correlate2d(self.input[n,j], self.output_gradient[n,i], mode='valid')
-                        input_gradient[n,j] += signal.convolve2d(self.output_gradient[n,i], self.kernels[i,j], mode='full')
-                    elif self._device == 'GPU':
-                        self.kernels_gradient[i,j] = c_signal.correlate2d(self.input[n,j], self.output_gradient[n,i], mode='valid')
-                        input_gradient[n,j] += c_signal.convolve2d(self.output_gradient[n,i], self.kernels[i,j], mode='full')
-                        
-                
-        # update kernels and biases
-        self.kernels -= optimizer.learning_rate * self.kernels_gradient
-        self.biases -= optimizer.learning_rate * self._xp.sum(self.output_gradient, axis=0)
-        
+        # Use the same padding as in the forward pass
+        self.weight_gradient, input_gradient = self.conv_backward_im2col(
+            self.output_gradient, self.input, self.weights, stride=1, pad=self.pad
+        )
+        # Compute bias gradient by summing over the batch and spatial dimensions.
+        self.bias_gradient = self._xp.sum(self.output_gradient, axis=(0, 2, 3))
+        # update weights and bias
+        # self.kernels -= optimizer.learning_rate * self.kernels_gradient
+        # self.biases -= optimizer.learning_rate * self._xp.sum(self.output_gradient, axis=(0, 2, 3))
+
+        #DEBUG
+        weight_grad_norm = self._xp.linalg.norm(self.weight_gradient)
+        bias_grad_norm = self._xp.linalg.norm(self.bias_gradient)
+        if self._device == 'GPU':
+            print(f'Conv weight grad norm: {weight_grad_norm.get()}')
+            print(f'Conv bias grad norm: {bias_grad_norm.get()}')
+        else:
+            print(f'Conv weight grad norm: {weight_grad_norm}')
+            print(f'Conv bias grad norm: {bias_grad_norm}')
+
+        self.weights, self.bias = optimizer.update_params(self)
         return input_gradient
 
+    def conv_forward_im2col(self, x, W, b, stride=1, pad=0):
+        N, C, H, W_in = x.shape
+        F, _, filter_h, filter_w = W.shape
+        if isinstance(pad, int):
+            total_pad_h = total_pad_w = 2 * pad
+        else:
+            pad_h, pad_w = pad
+            total_pad_h = sum(pad_h)
+            total_pad_w = sum(pad_w)
+        out_h = (H + total_pad_h - filter_h) // stride + 1
+        out_w = (W_in + total_pad_w - filter_w) // stride + 1
+        col = im2col(x, filter_h, filter_w, stride, pad, xp=self._xp)
+        W_col = W.reshape(F, -1)
+        out = self._xp.dot(col, W_col.T) + b.reshape(1, -1)
+        out = out.reshape(N, out_h, out_w, F).transpose(0, 3, 1, 2)
+        return out
+
+    def conv_backward_im2col(self, dout, x, W, stride=1, pad=0):
+        N, F, out_h, out_w = dout.shape
+        dout_reshaped = dout.transpose(0, 2, 3, 1).reshape(-1, F)
+        _, C, H, W_in = x.shape
+        filter_h, filter_w = W.shape[2], W.shape[3]
+        col = im2col(x, filter_h, filter_w, stride, pad, xp=self._xp)
+        dW_col = self._xp.dot(dout_reshaped.T, col)
+        dW = dW_col.reshape(W.shape)
+        W_col = W.reshape(F, -1)
+        dcol = self._xp.dot(dout_reshaped, W_col)
+        dx = col2im(dcol, x.shape, filter_h, filter_w, stride, pad, xp=self._xp)
+        return dW, dx
     
     def get_parameters(self):
         return self.kernels, self.biases
-
 
     def set_parameters(self, weights, bias):
         if weights.shape == self._kernels_shape:
@@ -269,7 +323,7 @@ class Flatten(Layer):
     to it's previous shape when going backward (back-propogating)
     """
     
-    def __init__(self, input_dims=None, device=None):
+    def __init__(self, input_dims=None, device='CPU'):
         super().__init__(device)
         self.name = 'Flatten'
         self._input_dims = input_dims
@@ -288,7 +342,7 @@ class Flatten(Layer):
 # Class for pooling layer
 class Pool(Layer):
     
-    def __init__(self, pool_size=2, stride=2, method='max', input_dims=None, device=None):
+    def __init__(self, pool_size=2, stride=2, method='max', input_dims=None, device='CPU'):
         super().__init__(device)
         self.name = 'Pool'
         self.pool_size = pool_size
@@ -301,49 +355,156 @@ class Pool(Layer):
         
     def forward(self, input, is_training=True):
         self.input = input
-        
-        # calculate output shape
-        _out_shape = (self.input.shape[0], *self._output_dims)
+        # Recompute output dimensions from the actual input shape
+        N, C, H, W = self.input.shape
+        out_height = 1 + (H - self.pool_size) // self.stride
+        out_width  = 1 + (W - self.pool_size) // self.stride
+        _out_shape = (N, C, out_height, out_width)
         self.output = self._xp.zeros(_out_shape)
         
-        # loop through the height and width of each channel of each input
-        for height in range(self._output_dims[1]):
-            for width in range(self._output_dims[2]):
+        for height in range(out_height):
+            for width in range(out_width):
                 height_start = height * self.stride
                 height_end = height_start + self.pool_size
                 width_start = width * self.stride
                 width_end = width_start + self.pool_size
                 
                 if self.method == 'max':
-                    self.output[:,:,height,width] = self._xp.max(input[:,:,height_start:height_end,width_start:width_end],axis=(2,3))
-                    
+                    self.output[:, :, height, width] = self._xp.max(input[:, :, height_start:height_end, width_start:width_end], axis=(2,3))
                 elif self.method == 'average':
-                    self.output[:,:,height,width] = self._xp.mean(input[:,:,height_start:height_end,width_start:width_end],axis=(2,3))
-                    
+                    self.output[:, :, height, width] = self._xp.mean(input[:, :, height_start:height_end, width_start:width_end], axis=(2,3))
+        
         return self.output
     
     def backward(self, output_gradient, optimizer):
         self.output_gradient = output_gradient
-        self.input_gradient = self._xp.zeros(self.input.shape)
+        N, C, H, W = self.input.shape
+        out_height = self.output.shape[2]
+        out_width  = self.output.shape[3]
+        input_gradient = self._xp.zeros(self.input.shape)
         
-        for n in range(self.output_gradient.shape[0]):
-            for d in range(self.output_gradient.shape[1]):
-                for height in range(self.output_gradient.shape[2]):
-                    for width in range(self.output_gradient.shape[3]):
-                        # set the start and end points for both height and width indices
+        for n in range(N):
+            for d in range(C):
+                for height in range(out_height):
+                    for width in range(out_width):
                         height_start = height * self.stride
                         height_end = height_start + self.pool_size
                         width_start = width * self.stride
                         width_end = width_start + self.pool_size
                         
-                        # find which index has the maximum value for each height by width range in self.input
-                        height_idx, width_idx = self._xp.where(np.max(self.input[n,d,height_start:height_end,width_start:width_end]) == self.input[n,d,height_start:height_end,width_start:width_end])
-                        height_idx, width_idx = height_idx[0], width_idx[0]
+                        # Extract the pooling region
+                        region = self.input[n, d, height_start:height_end, width_start:width_end]
+                        # Compute the maximum value in the region
+                        max_val = np.max(region)  # Note: np.max works fine on a CuPy array if the region is small
+                        # Get the indices where the region equals the maximum
+                        height_idx, width_idx = self._xp.where(region == max_val)
                         
-                        # set the input gradient at position height_idx, width_idx to be equal to output gradient
-                        # at position height,width (set output gradient to be at the position in the input gradient
-                        # where the maximum was found)
-                        self.input_gradient[n,d,height_start:height_end,width_start:width_end][height_idx,width_idx] = self.output_gradient[n,d,height,width]
+                        if height_idx.size == 0 or width_idx.size == 0:
+                            # This window is empty for some reason; skip it
+                            continue
                         
-        return self.input_gradient
+                        # Use the first index (this is common in max pooling backward)
+                        input_gradient[n, d, height_start:height_end, width_start:width_end][height_idx[0], width_idx[0]] = self.output_gradient[n, d, height, width]
+        
+        return input_gradient
+
+
+class BatchNormalization(Layer):
+    def __init__(self, momentum=0.9, epsilon=1e-5, input_dims=None, device='CPU'):
+        super().__init__(device)
+        self._input_dims = input_dims
+        self._output_dims = input_dims
+        self.num_features = input_dims[0] if isinstance(input_dims, tuple) else input_dims
+        self.momentum = momentum
+        self.epsilon = epsilon
+        # Initialize gamma (scale) as weight and beta (shift) as bias
+        # (Initialized with weight and bias names for standardized names
+        # to work with optimizer class)
+        self.weights = self._xp.ones(self.num_features)
+        self.bias = self._xp.zeros(self.num_features)
+        # Running mean and variance for inference
+        self.running_mean = self._xp.zeros(self.num_features)
+        self.running_var = self._xp.ones(self.num_features)
+        self.batch_mean = None
+        self.batch_var = None
+        self.name = 'BatchNorm'
+
+    def forward(self, x, is_training=True):
+        #DEBUG
+        # print(f'batch norm weights:{self.weights}')
+        # print(f'batch norm bias:{self.bias}')
+        # x is assumed to be shape (N, C, H, W) for conv layers,
+        # or (N, D) for dense layers.
+        if x.ndim == 4:
+            # For convolutional layers, compute mean and variance per channel over N, H, W
+            if is_training:
+                mean = self._xp.mean(x, axis=(0, 2, 3))
+                var = self._xp.var(x, axis=(0, 2, 3))
+                # Save mean and var as attributes to be used in backwards pass
+                self.batch_mean = mean
+                self.batch_var = var
+                # Update running stats
+                self.running_mean = self.momentum * self.running_mean + (1 - self.momentum) * mean
+                self.running_var = self.momentum * self.running_var + (1 - self.momentum) * var
+            else:
+                mean = self.running_mean
+                var = self.running_var
+            # Reshape for broadcasting: (1, C, 1, 1)
+            mean = mean.reshape((1, -1, 1, 1))
+            var = var.reshape((1, -1, 1, 1))
+            gamma = self.weights.reshape((1, -1, 1, 1))
+            beta = self.bias.reshape((1, -1, 1, 1))
+        else:
+            # For dense layers (shape: (N, D))
+            if is_training:
+                mean = self._xp.mean(x, axis=0)
+                var = self._xp.var(x, axis=0)
+                # Save mean and var as attributes to be used in backwards pass
+                self.batch_mean = mean
+                self.batch_var = var
+                self.running_mean = self.momentum * self.running_mean + (1 - self.momentum) * mean
+                self.running_var = self.momentum * self.running_var + (1 - self.momentum) * var
+            else:
+                mean = self.running_mean
+                var = self.running_var
+            gamma = self.weights
+            beta = self.bias
+
+        # Normalize and then scale and shift
+        self.normalized = (x - mean) / self._xp.sqrt(var + self.epsilon)
+        self.output = gamma * self.normalized + beta
+        return self.output
+
+    def backward(self, output_gradient, optimizer):
+        self.output_gradient = output_gradient
+        #DEBUG
+        # print(f'batch var:{self.batch_var}')
+        # print(f'batch mean:{self.batch_mean}')
+        if self.output_gradient.ndim == 2:
+            # Dense case: x shape (N, D)
+            N, D = self.output_gradient.shape
+            dgamma = self._xp.sum(self.output_gradient * self.normalized, axis=0)
+            dbeta = self._xp.sum(self.output_gradient, axis=0)
+            dnormalized = self.output_gradient * self.weights  # (N, D)
+            std_inv = 1.0 / self._xp.sqrt(self.batch_var + self.epsilon)
+            input_gradient = (1.0 / N) * std_inv * (N * dnormalized - self._xp.sum(dnormalized, axis=0)
+                                        - self.normalized * self._xp.sum(dnormalized * self.normalized, axis=0))
+        else:
+            # Convolutional case: x shape (N, C, H, W)
+            N, C, H, W = self.output_gradient.shape
+            dgamma = self._xp.sum(self.output_gradient * self.normalized, axis=(0, 2, 3))
+            dbeta = self._xp.sum(self.output_gradient, axis=(0, 2, 3))
+            dnormalized = self.output_gradient * self.weights.reshape((1, C, 1, 1))
+            std_inv = 1.0 / self._xp.sqrt(self.batch_var + self.epsilon)
+            std_inv = std_inv.reshape((1, C, 1, 1))
+            # Total number of elements per channel
+            M = N * H * W
+            input_gradient = (1.0 / M) * std_inv * (M * dnormalized - self._xp.sum(dnormalized, axis=(0,2,3), keepdims=True)
+                                        - self.normalized * self._xp.sum(dnormalized * self.normalized, axis=(0,2,3), keepdims=True))
+        
+        self.weight_gradient = dgamma
+        self.bias_gradient = dbeta
+        # update weights and bias using optimizer
+        self.weights, self.bias = optimizer.update_params(self)
+        return input_gradient
 
