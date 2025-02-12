@@ -21,9 +21,7 @@ class Loss():
         elif self._device == 'GPU':
             self._xp = cp
 
-    def calculate(self, targets, output):
-#         print('loss.calculate fired...')
-        
+    def calculate(self, targets, output):        
         loss = self.forward(targets, output)
         mean_loss = self._xp.mean(loss)
         return mean_loss
@@ -74,28 +72,29 @@ class Sparse_Categorical_Cross_Entropy(Loss):
         targets = targets.flatten()
         # Compute cross entropy loss for each sample:
         cce = -self._xp.log(output[range(len(output)), targets] + 1e-8)
-        #DEBUG
-        # print('CCE forward')
-        # print(f'targets:{targets}')
-        # print(f'output:{output}')
-        # print(f'cce:{cce}')
-        # print('')   
         return cce
     
+    # def backward(self, targets, output):
+    #     targets = targets.flatten()
+    #     samples = len(output)
+    #     labels = len(output[0])
+    #     one_hot = self._xp.eye(labels)[targets]
+    #     self.input_gradient = (output - one_hot) / samples
+    #     return self.input_gradient
+
     def backward(self, targets, output):
         targets = targets.flatten()
-        samples = len(output)
-        labels = len(output[0])
-        one_hot = self._xp.eye(labels)[targets]
-        # Standard gradient: softmax output minus one-hot target, averaged over the batch
-        self.input_gradient = (output - one_hot) / samples
+        samples = output.shape[0]
+        grad = self._xp.zeros_like(output)
         #DEBUG
-        # print('CCE backward')
-        # print(f'samples:{samples}')
-        # print(f'targets:{targets}')
-        # print(f'one_hot:{one_hot}')
-        # print(f'output:{output}')
-        # print(f'input_gradient:{self.input_gradient}')
-        # print('')
-        return self.input_gradient
+        print(f'targets:{targets}')
+        print(f'output:{output}')
+        print(f'grad:{grad}')
+        for i in range(samples):
+            print(f'grad[i]:{grad[i]}')
+            print(f'target[i]:{targets[i]}')
+            grad[i, targets[i]] = -1.0 / (output[i, targets[i]] + 1e-8)
+        grad = grad / samples
+        self.input_gradient = grad
+        return grad
 

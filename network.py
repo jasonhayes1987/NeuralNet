@@ -7,13 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/1wdENHctr6Q1xpOxzaZQROdPNNc0Jjy8r
 """
 
-import sys
-from google.colab import drive
-drive.mount('/content/drive')
-from numba import jit, cuda
-
-sys.path.append('/content/drive/MyDrive/Colab Notebooks/NeuralNet')
-
 import numpy as np
 import cupy as cp
 from sklearn.utils import shuffle
@@ -232,7 +225,7 @@ class Neural_Network():
             self._xp = cp
 
        
-    def train(self, data, epochs, batch_size, visualize=False, gpu=False):  
+    def train(self, data, epochs, batch_size, visualize=False):  
         """
         trains the network on the x_train data to the y_train data using x_val and y_val as validation sets
 
@@ -245,19 +238,12 @@ class Neural_Network():
             x, y = data[i]
             if type(x) == np.ndarray:
                 x = cp.asarray(x)
-                data[i] = (x, data[i][1])  # Repack the tuple with updated x
-                print(f'x data converted to type {type(data[i][0])}')
+                data[i] = (x, data[i][1])
             if type(y) == np.ndarray:
                 y = cp.asarray(y)
-                data[i] = (data[i][0], y)  # Repack the tuple with updated y
-                print(f'y data converted to type {type(data[i][1])}')
+                data[i] = (data[i][0], y)
 
-        # sets data to self.data
         self.data = data
-
-        for x, y in self.data:
-            print(f'x data type {type(x)}')
-            print(f'y data type {type(y)}')
         
         # set all layers names to be unique (self.name+index)
         for name in set([layer.name for layer in self.layers if (isinstance(layer, Layer.Layer)) and (hasattr(layer, 'name'))]):
@@ -298,10 +284,6 @@ class Neural_Network():
         # compute number of batches
         num_batches = np.ceil(self.data[0][0].shape[0] / batch_size).astype(np.int32)
         
-        # DEBUG
-        # print number of batches computed
-        print(f'num batches: {num_batches}')
-        
         if visualize:
             # check to see if figure already exists and if not, create it
             if len(plt.get_fignums()) == 0:
@@ -309,10 +291,10 @@ class Neural_Network():
                 dense = [l for l in self.layers if isinstance(l, Layer.Dense)]
                 fig = plt.figure(tight_layout=True)
                 grid = fig.add_gridspec(1,3)
-                wb_grid = grid[0,0:2].subgridspec(nrows=int(np.ceil(len(layers)/2)), ncols=2)
+                wb_grid = grid[0,0:2].subgridspec(nrows=int(np.ceil(len(self.layers)/2)), ncols=2)
                 metric_grid = grid[0,2].subgridspec(3,1)
 
-                for index, l in enumerate(layers):
+                for index, l in enumerate(self.layers):
                     subgrid = wb_grid[int(np.floor(index/2)),index%2].subgridspec(3,1)
                     plot1 = fig.add_subplot(subgrid[0:2,0])
                     plot1.axes.yaxis.set_ticks(np.arange(l.weights.shape[0]))
@@ -349,23 +331,13 @@ class Neural_Network():
                 x_batch = x_train[b * batch_size:(b+1) * batch_size]
                 y_batch = y_train[b * batch_size:(b+1) * batch_size]
                 
-                # DEBUG:
-                # print x_batch and y_batch sizes
-#                 print(f'x_batch size: {x_batch.shape}')
-#                 print(f'y_batch size: {y_batch.shape}')
-
-                # set output to initially be x to be used as initial input for
-                # forward propogation through network
+                # Forward pass
                 output = x_batch
-
-                # loop through each layer and calculate its output using as input
-                # the output of the previous layer
                 for layer in self.layers:
                     output = layer.forward(output)
 
                 # calculate dE/dY
                 gradient = self.loss.backward(y_batch, output)
-    #                     print(f'first output gradient shape: {gradient.shape}')
 
                 # run optimizer pre_update_params
                 self.optimizer.pre_update_params(e)
@@ -383,17 +355,12 @@ class Neural_Network():
                         for layer in [layer for layer in self.layers if isinstance(layer, Layer.Dense)]:
                              self.metric_data[layer.name].append([layer.weights, layer.bias])
                             
-#                             self.metric_data[layer.name] = np.append(self.metric_data[layer.name], [layer.weights, np.expand_dims(layer.bias, axis=1)])
-#                             self.metric_data[layer.name] = np.expand_dims(self.metric_data[layer.name], axis=1).reshape((e*num_batches)+b+1,2)
-                            
                     if metric == Layer.Convolutional:
                         for layer in [layer for layer in self.layers if isinstance(layer, Layer.Convolutional)]:
                             self.metric_data[layer.name].append([layer.kernels, layer.biases])
-#                             self.metric_data[layer.name] = np.append(self.metric_data[layer.name], [layer.kernels, layer.biases], axis=1)
                             
                     elif isinstance(metric, Optimizers.Optimizer):
                         self.metric_data['Learning Rate'].append(metric.current_learning_rate)
-#                         self.metric_data['Learning Rate'] = np.append(self.metric_data['Learning Rate'], metric.current_learning_rate)
                 
                 for index,(x, y) in enumerate(self.data):
                     output = self.predict(x)
@@ -415,26 +382,17 @@ class Neural_Network():
                             total_loss = loss + total_L1_loss + total_L2_loss
                             # append data to end of respective metric_data array
                             self.metric_data[f'{data} {metric.name}'].append(loss)
-#                             self.metric_data[f'{data} {metric.name}'] = np.append(self.metric_data[f'{data} {metric.name}'], loss)
                             if total_L1_loss > 0:
                                 self.metric_data[f'{data} L1 Regularization'].append(total_L1_loss)
-#                                 self.metric_data[f'{data} L1 Regularization'] = np.append(self.metric_data[f'{data} L1 Regularization'], total_L1_loss)
                             if total_L2_loss > 0:
                                 self.metric_data[f'{data} L2 Regularization'].append(total_L2_loss)
-#                                 self.metric_data[f'{data} L2 Regularization'] = np.append(self.metric_data[f'{data} L2 Regularization'], total_L2_loss)
                             if total_loss > loss:
                                 self.metric_data[f'{data} Total Loss'].append(total_loss)
-#                                 self.metric_data[f'{data} Total Loss'] = np.append(self.metric_data[f'{data} Total Loss'], total_loss)
 
                         elif isinstance(metric, Metrics.Metric):
                             m = metric.calculate(y, output)
-                            self.metric_data[f'{data} {metric.name}'].append(m)
-#                             self.metric_data[f'{data} {metric.name}'] = np.append(self.metric_data[f'{data} {metric.name}'], m)
+                            self.metric_data[f'{data} {metric.name}'].append(m)\
 
-                
-                            
-                        
-                            
                 # print update
                 print(f"epoch {e} batch {b}")
                 i = 0

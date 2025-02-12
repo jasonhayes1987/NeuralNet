@@ -14,7 +14,6 @@ from cupyx.scipy import signal as c_signal
 from utils import im2col, col2im
 
 # base layer class
-
 class Layer:
     def __init__(self, device='CPU'):
         self._device = device
@@ -35,9 +34,7 @@ class Layer:
       # computes derivative of input 'X' of layer given output error 'dE/dY'
       raise NotImplementedError("Must override 'backward' by instantiating child of layer class (Activation, Dense, Convolutional, etc...")
 
-    
 # class for Activation layers
-# inherits from layer
 class Activation(Layer):
     def __init__(self, activation, input_dims=None, device='CPU'):
         super().__init__(device)
@@ -53,21 +50,14 @@ class Activation(Layer):
         raise NotImplementedError("Must override 'derivative' by instantiating child of Activation class (Relu, Tanh, Sigmoid, etc...")
 
     def forward(self, input, is_training=True):
-        # computes and returns output by passing input through activation function
         self.input = input
-        # self.output = self.activation.compute() # v1
         self.output = self.compute()
         return self.output
 
     def backward(self, output_gradient, optimizer):
-        # computes and returns the gradient of the error with respect to the activation (dE/df'[X])
-        # output = np.multiply(output_gradient, self.activation.derivative()) # v1
         output = np.multiply(output_gradient, self.derivative())
         return output
 
-
-# class for Dense layers
-# inherits from layer
 class Dense(Layer):
     def __init__(self, output_size, L1_regularizer=0, L2_regularizer=0, input_dims=None, device='CPU', init='Default'):
         super().__init__(device)
@@ -76,17 +66,14 @@ class Dense(Layer):
         self._output_dims = output_size
         
         if init == 'Xavier':
-            # Xavier/Glorot initialization
             fan_in = input_dims
             fan_out = output_size
             limit = np.sqrt(6.0 / (fan_in + fan_out))
             self.weights = self._xp.random.uniform(-limit, limit, (self._input_dims, self._output_dims))
         elif init == 'He':
-            # He initialization
             fan_in = input_dims
             self.weights = self._xp.random.randn(self._input_dims, self._output_dims) * np.sqrt(2.0 / fan_in)
         else:
-            # Default: standard normal
             self.weights = self._xp.random.randn(self._input_dims, self._output_dims)
             
         self.bias = self._xp.random.randn(output_size)
@@ -95,7 +82,6 @@ class Dense(Layer):
     
 
     def forward(self, input, is_training=True):
-        # computes output of layer given input
         self.input = input
         self.output = self._xp.dot(self.input, self.weights) + self.bias
         return self.output
@@ -108,7 +94,6 @@ class Dense(Layer):
         self.bias_gradient = self._xp.sum(self.output_gradient, axis=0)
     
         # add in gradients of regularization wrt weights and bias if regularizers > 0
-    
         # for L1 Regularization
         if self.L1_regularizer >= 0:
             # update weight gradient
@@ -128,17 +113,6 @@ class Dense(Layer):
 
             # update bias gradient
             self.bias_gradient += 2 * (self.L2_regularizer * self.bias)
-
-        #DEBUG
-        weight_grad_norm = self._xp.linalg.norm(self.weight_gradient)
-        bias_grad_norm = self._xp.linalg.norm(self.bias_gradient)
-        if self._device == 'GPU':
-            print(f'Dense weight grad norm: {weight_grad_norm.get()}')
-            print(f'Dense bias grad norm: {bias_grad_norm.get()}')
-        else:
-            print(f'Dense weight grad norm: {weight_grad_norm}')
-            print(f'Dense bias grad norm: {bias_grad_norm}')
-
 
         input_gradient = self._xp.dot(output_gradient, self.weights.T)
 
@@ -168,9 +142,6 @@ class Dense(Layer):
             # Throw ERROR that dense required 2D input data
             print(f'Dense layer requires 2D data as input; passed {len(previous_layer.output.shape)}D')
         
-
-# class for Dropout Layers
-# inherits from Layer
 class Dropout(Layer):
     
     def __init__(self, dropout_rate, input_dims=None, output_size=None, device='CPU'):
@@ -196,8 +167,6 @@ class Dropout(Layer):
         self.output_gradient = output_gradient
         return self.output_gradient * self.mask
     
-# Class for Convolutional layers
-# inherits from Layer
 class Convolutional(Layer):
     def __init__(self, kernel_size, depth, mode, input_dims=None, device='CPU', init='default'):
         super().__init__(device)
@@ -227,7 +196,6 @@ class Convolutional(Layer):
             self._output_dims = (self._depth, _input_height, _input_width)
             
         self.bias = self._xp.random.randn(self._depth)
-        # print(f'kernels shape:{self._kernels_shape}')
 
     def compute_asymmetric_padding(self):
         kernel_size = self._kernels_shape[2]
@@ -248,25 +216,11 @@ class Convolutional(Layer):
 
     def backward(self, output_gradient, optimizer):
         self.output_gradient = output_gradient
-        # Use the same padding as in the forward pass
         self.weight_gradient, input_gradient = self.conv_backward_im2col(
             self.output_gradient, self.input, self.weights, stride=1, pad=self.pad
         )
         # Compute bias gradient by summing over the batch and spatial dimensions.
         self.bias_gradient = self._xp.sum(self.output_gradient, axis=(0, 2, 3))
-        # update weights and bias
-        # self.kernels -= optimizer.learning_rate * self.kernels_gradient
-        # self.biases -= optimizer.learning_rate * self._xp.sum(self.output_gradient, axis=(0, 2, 3))
-
-        #DEBUG
-        weight_grad_norm = self._xp.linalg.norm(self.weight_gradient)
-        bias_grad_norm = self._xp.linalg.norm(self.bias_gradient)
-        if self._device == 'GPU':
-            print(f'Conv weight grad norm: {weight_grad_norm.get()}')
-            print(f'Conv bias grad norm: {bias_grad_norm.get()}')
-        else:
-            print(f'Conv weight grad norm: {weight_grad_norm}')
-            print(f'Conv bias grad norm: {bias_grad_norm}')
 
         self.weights, self.bias = optimizer.update_params(self)
         return input_gradient
@@ -302,21 +256,19 @@ class Convolutional(Layer):
         return dW, dx
     
     def get_parameters(self):
-        return self.kernels, self.biases
+        return self.weights, self.bias
 
     def set_parameters(self, weights, bias):
-        if weights.shape == self._kernels_shape:
-            self.kernels = weights
+        if weights.shape == self.weights.shape:
+            self.weights = weights
         else:
             print("weights don't match kernel shape")
 
-        if bias.shape == self._output_dims:
-            self.biases = bias
+        if bias.shape == self.bias.shape:
+            self.bias = bias
         else:
             print("bias doesn't match bias shape")
     
-
-# Class for flatten layer
 class Flatten(Layer):
     """
     Class used for flattening the input to an NxD dimension going forward, and restoring data
@@ -339,7 +291,6 @@ class Flatten(Layer):
     def backward(self, output_gradient, optimizer):
         return self._xp.reshape(output_gradient, self.input_shape)
     
-# Class for pooling layer
 class Pool(Layer):
     
     def __init__(self, pool_size=2, stride=2, method='max', input_dims=None, device='CPU'):
@@ -353,7 +304,7 @@ class Pool(Layer):
         _out_width = 1 + (self._input_dims[2] - self.pool_size) // self.stride
         self._output_dims = (self._input_dims[0], _out_height, _out_width)
         
-    def forward(self, input, is_training=True):
+    def forward(self, input):
         self.input = input
         # Recompute output dimensions from the actual input shape
         N, C, H, W = self.input.shape
@@ -395,12 +346,12 @@ class Pool(Layer):
                         # Extract the pooling region
                         region = self.input[n, d, height_start:height_end, width_start:width_end]
                         # Compute the maximum value in the region
-                        max_val = np.max(region)  # Note: np.max works fine on a CuPy array if the region is small
+                        max_val = np.max(region)
                         # Get the indices where the region equals the maximum
                         height_idx, width_idx = self._xp.where(region == max_val)
                         
                         if height_idx.size == 0 or width_idx.size == 0:
-                            # This window is empty for some reason; skip it
+                            # If this window is empty for some reason, skip it
                             continue
                         
                         # Use the first index (this is common in max pooling backward)
@@ -410,7 +361,7 @@ class Pool(Layer):
 
 
 class BatchNormalization(Layer):
-    def __init__(self, momentum=0.9, epsilon=1e-5, input_dims=None, device='CPU'):
+    def __init__(self, momentum=0.9, epsilon=0.001, input_dims=None, device='CPU'):
         super().__init__(device)
         self._input_dims = input_dims
         self._output_dims = input_dims
@@ -430,9 +381,6 @@ class BatchNormalization(Layer):
         self.name = 'BatchNorm'
 
     def forward(self, x, is_training=True):
-        #DEBUG
-        # print(f'batch norm weights:{self.weights}')
-        # print(f'batch norm bias:{self.bias}')
         # x is assumed to be shape (N, C, H, W) for conv layers,
         # or (N, D) for dense layers.
         if x.ndim == 4:
@@ -477,9 +425,6 @@ class BatchNormalization(Layer):
 
     def backward(self, output_gradient, optimizer):
         self.output_gradient = output_gradient
-        #DEBUG
-        # print(f'batch var:{self.batch_var}')
-        # print(f'batch mean:{self.batch_mean}')
         if self.output_gradient.ndim == 2:
             # Dense case: x shape (N, D)
             N, D = self.output_gradient.shape
