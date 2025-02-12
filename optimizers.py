@@ -11,13 +11,13 @@ class Optimizer():
             self._xp = cp
     
     def pre_update_params():
-        pass
+        raise NotImplementedError
     
     def update_params():
-        pass
+        raise NotImplementedError
     
     def post_update_params():
-        pass
+        raise NotImplementedError
  
 
 class SGD(Optimizer):

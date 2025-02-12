@@ -1,13 +1,19 @@
 # Project Codebase
 
 
-## File: README.md
+## File: .pytest_cache/README.md
 ```md
-# NeuralNet
- My from scratch neural network 
+# pytest cache directory #
 
+This directory contains data from the pytest's cache plugin,
+which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
 
-``
+**Do not** commit this to version control.
+
+See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
+
+```
+
 
 
 ## File: activations.py
@@ -156,8 +162,28 @@ class Sigmoid(Activation):
         return output
 
 
+```
 
-``
+
+
+## File: generate_markdown.sh
+```sh
+#!/bin/bash
+
+REPO_PATH="."  # Change this if your repo is in another directory
+
+echo "# Project Codebase" > repo_code.md
+
+for f in $(find $REPO_PATH -type f -name "*.py" -o -name "*.md" -o -name "*.json" -o -name "*.yaml" -o -name "*.sh"); do
+    echo -e "\n\n## File: ${f#$REPO_PATH/}\n\`\`\`${f##*.}" >> repo_code.md
+    cat "$f" >> repo_code.md
+    echo -e "\n\`\`\`\n" >> repo_code.md
+done
+
+echo "Markdown file generated: repo_code.md"
+
+```
+
 
 
 ## File: layer.py
@@ -278,16 +304,6 @@ class Dense(Layer):
             # update bias gradient
             self.bias_gradient += 2 * (self.L2_regularizer * self.bias)
 
-        # weight_grad_norm = self._xp.linalg.norm(self.weight_gradient)
-        # bias_grad_norm = self._xp.linalg.norm(self.bias_gradient)
-        # if self._device == 'GPU':
-        #     print(f'Dense weight grad norm: {weight_grad_norm.get()}')
-        #     print(f'Dense bias grad norm: {bias_grad_norm.get()}')
-        # else:
-        #     print(f'Dense weight grad norm: {weight_grad_norm}')
-        #     print(f'Dense bias grad norm: {bias_grad_norm}')
-
-
         input_gradient = self._xp.dot(output_gradient, self.weights.T)
 
         # update weights and bias
@@ -390,19 +406,11 @@ class Convolutional(Layer):
 
     def backward(self, output_gradient, optimizer):
         self.output_gradient = output_gradient
-        # Use the same padding as in the forward pass
         self.weight_gradient, input_gradient = self.conv_backward_im2col(
             self.output_gradient, self.input, self.weights, stride=1, pad=self.pad
         )
         # Compute bias gradient by summing over the batch and spatial dimensions.
         self.bias_gradient = self._xp.sum(self.output_gradient, axis=(0, 2, 3))
-
-        # if self._device == 'GPU':
-        #     print(f'Conv weight grad norm: {weight_grad_norm.get()}')
-        #     print(f'Conv bias grad norm: {bias_grad_norm.get()}')
-        # else:
-        #     print(f'Conv weight grad norm: {weight_grad_norm}')
-        #     print(f'Conv bias grad norm: {bias_grad_norm}')
 
         self.weights, self.bias = optimizer.update_params(self)
         return input_gradient
@@ -438,16 +446,16 @@ class Convolutional(Layer):
         return dW, dx
     
     def get_parameters(self):
-        return self.kernels, self.biases
+        return self.weights, self.bias
 
     def set_parameters(self, weights, bias):
-        if weights.shape == self._kernels_shape:
-            self.kernels = weights
+        if weights.shape == self.weights.shape:
+            self.weights = weights
         else:
             print("weights don't match kernel shape")
 
-        if bias.shape == self._output_dims:
-            self.biases = bias
+        if bias.shape == self.bias.shape:
+            self.bias = bias
         else:
             print("bias doesn't match bias shape")
     
@@ -486,7 +494,7 @@ class Pool(Layer):
         _out_width = 1 + (self._input_dims[2] - self.pool_size) // self.stride
         self._output_dims = (self._input_dims[0], _out_height, _out_width)
         
-    def forward(self, input, is_training=True):
+    def forward(self, input):
         self.input = input
         # Recompute output dimensions from the actual input shape
         N, C, H, W = self.input.shape
@@ -543,7 +551,7 @@ class Pool(Layer):
 
 
 class BatchNormalization(Layer):
-    def __init__(self, momentum=0.9, epsilon=1e-5, input_dims=None, device='CPU'):
+    def __init__(self, momentum=0.9, epsilon=0.001, input_dims=None, device='CPU'):
         super().__init__(device)
         self._input_dims = input_dims
         self._output_dims = input_dims
@@ -665,9 +673,7 @@ class Loss():
         elif self._device == 'GPU':
             self._xp = cp
 
-    def calculate(self, targets, output):
-#         print('loss.calculate fired...')
-        
+    def calculate(self, targets, output):        
         loss = self.forward(targets, output)
         mean_loss = self._xp.mean(loss)
         return mean_loss
@@ -718,34 +724,35 @@ class Sparse_Categorical_Cross_Entropy(Loss):
         targets = targets.flatten()
         # Compute cross entropy loss for each sample:
         cce = -self._xp.log(output[range(len(output)), targets] + 1e-8)
-        #DEBUG
-        # print('CCE forward')
-        # print(f'targets:{targets}')
-        # print(f'output:{output}')
-        # print(f'cce:{cce}')
-        # print('')   
         return cce
     
+    # def backward(self, targets, output):
+    #     targets = targets.flatten()
+    #     samples = len(output)
+    #     labels = len(output[0])
+    #     one_hot = self._xp.eye(labels)[targets]
+    #     self.input_gradient = (output - one_hot) / samples
+    #     return self.input_gradient
+
     def backward(self, targets, output):
         targets = targets.flatten()
-        samples = len(output)
-        labels = len(output[0])
-        one_hot = self._xp.eye(labels)[targets]
-        # Standard gradient: softmax output minus one-hot target, averaged over the batch
-        self.input_gradient = (output - one_hot) / samples
+        samples = output.shape[0]
+        grad = self._xp.zeros_like(output)
         #DEBUG
-        # print('CCE backward')
-        # print(f'samples:{samples}')
-        # print(f'targets:{targets}')
-        # print(f'one_hot:{one_hot}')
-        # print(f'output:{output}')
-        # print(f'input_gradient:{self.input_gradient}')
-        # print('')
-        return self.input_gradient
+        print(f'targets:{targets}')
+        print(f'output:{output}')
+        print(f'grad:{grad}')
+        for i in range(samples):
+            print(f'grad[i]:{grad[i]}')
+            print(f'target[i]:{targets[i]}')
+            grad[i, targets[i]] = -1.0 / (output[i, targets[i]] + 1e-8)
+        grad = grad / samples
+        self.input_gradient = grad
+        return grad
 
 
+```
 
-``
 
 
 ## File: metrics.py
@@ -797,8 +804,8 @@ class Precision_Accuracy(Metric):
         
     def calculate(self, targets, output):
         return self._xp.mean(self._xp.absolute(output - targets) < (self._xp.std(targets)/self.strictness))
+```
 
-``
 
 
 ## File: network.py
@@ -811,13 +818,6 @@ Automatically generated by Colaboratory.
 Original file is located at
     https://colab.research.google.com/drive/1wdENHctr6Q1xpOxzaZQROdPNNc0Jjy8r
 """
-
-import sys
-from google.colab import drive
-drive.mount('/content/drive')
-from numba import jit, cuda
-
-sys.path.append('/content/drive/MyDrive/Colab Notebooks/NeuralNet')
 
 import numpy as np
 import cupy as cp
@@ -1037,7 +1037,7 @@ class Neural_Network():
             self._xp = cp
 
        
-    def train(self, data, epochs, batch_size, visualize=False, gpu=False):  
+    def train(self, data, epochs, batch_size, visualize=False):  
         """
         trains the network on the x_train data to the y_train data using x_val and y_val as validation sets
 
@@ -1050,19 +1050,12 @@ class Neural_Network():
             x, y = data[i]
             if type(x) == np.ndarray:
                 x = cp.asarray(x)
-                data[i] = (x, data[i][1])  # Repack the tuple with updated x
-                print(f'x data converted to type {type(data[i][0])}')
+                data[i] = (x, data[i][1])
             if type(y) == np.ndarray:
                 y = cp.asarray(y)
-                data[i] = (data[i][0], y)  # Repack the tuple with updated y
-                print(f'y data converted to type {type(data[i][1])}')
+                data[i] = (data[i][0], y)
 
-        # sets data to self.data
         self.data = data
-
-        for x, y in self.data:
-            print(f'x data type {type(x)}')
-            print(f'y data type {type(y)}')
         
         # set all layers names to be unique (self.name+index)
         for name in set([layer.name for layer in self.layers if (isinstance(layer, Layer.Layer)) and (hasattr(layer, 'name'))]):
@@ -1103,10 +1096,6 @@ class Neural_Network():
         # compute number of batches
         num_batches = np.ceil(self.data[0][0].shape[0] / batch_size).astype(np.int32)
         
-        # DEBUG
-        # print number of batches computed
-        print(f'num batches: {num_batches}')
-        
         if visualize:
             # check to see if figure already exists and if not, create it
             if len(plt.get_fignums()) == 0:
@@ -1114,10 +1103,10 @@ class Neural_Network():
                 dense = [l for l in self.layers if isinstance(l, Layer.Dense)]
                 fig = plt.figure(tight_layout=True)
                 grid = fig.add_gridspec(1,3)
-                wb_grid = grid[0,0:2].subgridspec(nrows=int(np.ceil(len(layers)/2)), ncols=2)
+                wb_grid = grid[0,0:2].subgridspec(nrows=int(np.ceil(len(self.layers)/2)), ncols=2)
                 metric_grid = grid[0,2].subgridspec(3,1)
 
-                for index, l in enumerate(layers):
+                for index, l in enumerate(self.layers):
                     subgrid = wb_grid[int(np.floor(index/2)),index%2].subgridspec(3,1)
                     plot1 = fig.add_subplot(subgrid[0:2,0])
                     plot1.axes.yaxis.set_ticks(np.arange(l.weights.shape[0]))
@@ -1154,23 +1143,13 @@ class Neural_Network():
                 x_batch = x_train[b * batch_size:(b+1) * batch_size]
                 y_batch = y_train[b * batch_size:(b+1) * batch_size]
                 
-                # DEBUG:
-                # print x_batch and y_batch sizes
-#                 print(f'x_batch size: {x_batch.shape}')
-#                 print(f'y_batch size: {y_batch.shape}')
-
-                # set output to initially be x to be used as initial input for
-                # forward propogation through network
+                # Forward pass
                 output = x_batch
-
-                # loop through each layer and calculate its output using as input
-                # the output of the previous layer
                 for layer in self.layers:
                     output = layer.forward(output)
 
                 # calculate dE/dY
                 gradient = self.loss.backward(y_batch, output)
-    #                     print(f'first output gradient shape: {gradient.shape}')
 
                 # run optimizer pre_update_params
                 self.optimizer.pre_update_params(e)
@@ -1188,17 +1167,12 @@ class Neural_Network():
                         for layer in [layer for layer in self.layers if isinstance(layer, Layer.Dense)]:
                              self.metric_data[layer.name].append([layer.weights, layer.bias])
                             
-#                             self.metric_data[layer.name] = np.append(self.metric_data[layer.name], [layer.weights, np.expand_dims(layer.bias, axis=1)])
-#                             self.metric_data[layer.name] = np.expand_dims(self.metric_data[layer.name], axis=1).reshape((e*num_batches)+b+1,2)
-                            
                     if metric == Layer.Convolutional:
                         for layer in [layer for layer in self.layers if isinstance(layer, Layer.Convolutional)]:
                             self.metric_data[layer.name].append([layer.kernels, layer.biases])
-#                             self.metric_data[layer.name] = np.append(self.metric_data[layer.name], [layer.kernels, layer.biases], axis=1)
                             
                     elif isinstance(metric, Optimizers.Optimizer):
                         self.metric_data['Learning Rate'].append(metric.current_learning_rate)
-#                         self.metric_data['Learning Rate'] = np.append(self.metric_data['Learning Rate'], metric.current_learning_rate)
                 
                 for index,(x, y) in enumerate(self.data):
                     output = self.predict(x)
@@ -1220,26 +1194,17 @@ class Neural_Network():
                             total_loss = loss + total_L1_loss + total_L2_loss
                             # append data to end of respective metric_data array
                             self.metric_data[f'{data} {metric.name}'].append(loss)
-#                             self.metric_data[f'{data} {metric.name}'] = np.append(self.metric_data[f'{data} {metric.name}'], loss)
                             if total_L1_loss > 0:
                                 self.metric_data[f'{data} L1 Regularization'].append(total_L1_loss)
-#                                 self.metric_data[f'{data} L1 Regularization'] = np.append(self.metric_data[f'{data} L1 Regularization'], total_L1_loss)
                             if total_L2_loss > 0:
                                 self.metric_data[f'{data} L2 Regularization'].append(total_L2_loss)
-#                                 self.metric_data[f'{data} L2 Regularization'] = np.append(self.metric_data[f'{data} L2 Regularization'], total_L2_loss)
                             if total_loss > loss:
                                 self.metric_data[f'{data} Total Loss'].append(total_loss)
-#                                 self.metric_data[f'{data} Total Loss'] = np.append(self.metric_data[f'{data} Total Loss'], total_loss)
 
                         elif isinstance(metric, Metrics.Metric):
                             m = metric.calculate(y, output)
-                            self.metric_data[f'{data} {metric.name}'].append(m)
-#                             self.metric_data[f'{data} {metric.name}'] = np.append(self.metric_data[f'{data} {metric.name}'], m)
+                            self.metric_data[f'{data} {metric.name}'].append(m)\
 
-                
-                            
-                        
-                            
                 # print update
                 print(f"epoch {e} batch {b}")
                 i = 0
@@ -1354,8 +1319,8 @@ class Neural_Network():
         """   
         with open(path, 'rb') as f:
             return pickle.load(f)
+```
 
-``
 
 
 ## File: optimizers.py
@@ -1536,21 +1501,25 @@ class Adam(Optimizer):
 
 
 
+## File: README.md
+```md
+# NeuralNet
+ My from scratch neural network 
+
+```
+
+
+
+## File: repo_code.md
+```md
+
+```
+
+
+
 ## File: test.py
 ```py
-# -*- coding: utf-8 -*-
-"""test.ipynb
 
-Automatically generated by Colaboratory.
-
-Original file is located at
-    https://colab.research.google.com/drive/1E-nGuv2IK2pOofzzMZkxzNMEwiVxn5o_
-"""
-
-import sys
-from google.colab import drive
-drive.mount('/content/drive')
-sys.path.append('/content/drive/MyDrive/Colab Notebooks/NeuralNet')
 import network as Network
 import numpy as np
 from tensorflow.keras import activations
@@ -1563,32 +1532,32 @@ class UnetTest(unittest.TestCase):
     def setUp(self):
         super(UnetTest, self).setUp()
 
-    def tearDown(self):
-        pass
+    # def tearDown(self):
+    #     pass
 
-    def test_All(self):
-        self.test_Layers()
-        self.test_Activations()
-        self.test_Losses()
+    # def test_All(self):
+    #     self.test_Layers()
+    #     self.test_Activations()
+    #     self.test_Losses()
 
-    def test_Layers(self):
-        self.test_Activations()
-        self.test_Dense()
-        self.test_Convolutional()
-        self.test_Pool()
-        self.test_Flatten()
+    # def test_Layers(self):
+    #     self.test_Activations()
+    #     self.test_Dense()
+    #     self.test_Convolutional()
+    #     self.test_Pool()
+    #     self.test_Flatten()
 
-    def test_Activations(self):
-        self.test_relu()
-        self.test_elu()
-        self.test_gelu()
-        self.test_tanh()
-        self.test_sigmoid()
-        self.test_softmax()
+    # def test_Activations(self):
+    #     self.test_relu()
+    #     self.test_elu()
+    #     self.test_gelu()
+    #     self.test_tanh()
+    #     self.test_sigmoid()
+    #     self.test_softmax()
 
-    def test_Losses(self):
-        self.test_MSE()
-        self.test_Sparse_Categorical_Cross_Entropy()
+    # def test_Losses(self):
+    #     self.test_MSE()
+    #     self.test_Sparse_Categorical_Cross_Entropy()
 
     def test_relu(self):
         test_arr = np.random.randn(5,5)
@@ -1774,7 +1743,7 @@ class UnetTest(unittest.TestCase):
         net = Network.Neural_Network()
         net.compile_model(optimizer=optimizer)
         net.add_Convolutional(3, 2, mode='valid', input_dims=data.shape[1:])
-        bias = np.zeros(shape=net.layers[0]._output_dims)
+        bias = tf_model.bias.numpy()
         net.layers[0].set_parameters(weights, bias)
         net_out = net.layers[0].forward(data)
 
@@ -1839,6 +1808,38 @@ class UnetTest(unittest.TestCase):
 
         if np.testing.assert_allclose(net_back,data, rtol=1e-05) == None:
             print('Flatten.bacward() passed')
+
+
+    def test_BatchNormalization(self):
+        # Generate random input
+        test_arr = np.random.randn(10, 5)  # 10 samples, 5 features
+
+        # Use TensorFlow to get expected output
+        tf_bn_layer = tf.keras.layers.BatchNormalization()
+        tf_out = tf_bn_layer(test_arr, training=True).numpy()
+
+        # Initialize your network
+        net = Network.Neural_Network()
+        net.compile_model()
+        net.add_BatchNorm(input_dims=test_arr.shape[1])
+        net_out = net.layers[-1].forward(test_arr, is_training=True)
+
+        # Compare results
+        if np.testing.assert_allclose(tf_out, net_out, rtol=1e-05) == None:
+            print('BatchNormalization.forward() passed')
+
+        # Compute gradients using TensorFlow
+        x = tf.Variable(test_arr, dtype=tf.float32)
+        with tf.GradientTape() as tape:
+            tf_out = tf_bn_layer(x, training=True)
+        tf_dx = tape.gradient(tf_out, x).numpy()
+
+        # Compute gradients using your implementation
+        net_dx = net.layers[-1].backward(np.ones_like(net_out), optimizer=None)
+
+        # Compare gradients
+        if np.testing.assert_allclose(tf_dx, net_dx, rtol=1e-05) == None:
+            print('BatchNormalization.backward() passed')
 
 
     def test_MSE(self):
@@ -2159,32 +2160,5 @@ def plot_confusion_matrix(confusion_matrix, classes, normalize = False, title = 
 
 def get_accuracy_from_confusion_matrix(confusion_matrix):
     return confusion_matrix.trace() / confusion_matrix.sum()
-
-``
-
-
-## File: generate_markdown.sh
-```sh
-#!/bin/bash
-
-REPO_PATH="."  # Change this if your repo is in another directory
-
-echo "# Project Codebase" > repo_code.md
-
-for f in $(find $REPO_PATH -type f -name "*.py" -o -name "*.md" -o -name "*.json" -o -name "*.yaml" -o -name "*.sh"); do
-    echo -e "\n\n## File: ${f#$REPO_PATH/}\n\`\`\`${f##*.}" >> repo_code.md
-    cat "$f" >> repo_code.md
-    echo -e "\n\`\`\`\n" >> repo_code.md
-done
-
-echo "Markdown file generated: repo_code.md"
-
-
-``
-
-
-## File: repo_code.md
-```md
-
 ```
 

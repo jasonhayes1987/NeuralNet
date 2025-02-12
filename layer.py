@@ -55,7 +55,7 @@ class Activation(Layer):
         return self.output
 
     def backward(self, output_gradient, optimizer):
-        output = np.multiply(output_gradient, self.derivative())
+        output = self._xp.multiply(output_gradient, self.derivative())
         return output
 
 class Dense(Layer):
@@ -68,11 +68,11 @@ class Dense(Layer):
         if init == 'Xavier':
             fan_in = input_dims
             fan_out = output_size
-            limit = np.sqrt(6.0 / (fan_in + fan_out))
+            limit = self._xp.sqrt(6.0 / (fan_in + fan_out))
             self.weights = self._xp.random.uniform(-limit, limit, (self._input_dims, self._output_dims))
         elif init == 'He':
             fan_in = input_dims
-            self.weights = self._xp.random.randn(self._input_dims, self._output_dims) * np.sqrt(2.0 / fan_in)
+            self.weights = self._xp.random.randn(self._input_dims, self._output_dims) * self._xp.sqrt(2.0 / fan_in)
         else:
             self.weights = self._xp.random.randn(self._input_dims, self._output_dims)
             
@@ -304,7 +304,7 @@ class Pool(Layer):
         _out_width = 1 + (self._input_dims[2] - self.pool_size) // self.stride
         self._output_dims = (self._input_dims[0], _out_height, _out_width)
         
-    def forward(self, input):
+    def forward(self, input, is_training=True):
         self.input = input
         # Recompute output dimensions from the actual input shape
         N, C, H, W = self.input.shape
@@ -346,7 +346,7 @@ class Pool(Layer):
                         # Extract the pooling region
                         region = self.input[n, d, height_start:height_end, width_start:width_end]
                         # Compute the maximum value in the region
-                        max_val = np.max(region)
+                        max_val = self._xp.max(region)
                         # Get the indices where the region equals the maximum
                         height_idx, width_idx = self._xp.where(region == max_val)
                         

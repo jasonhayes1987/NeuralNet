@@ -27,39 +27,70 @@ def im2col(input_data, filter_h, filter_w, stride=1, pad=0, xp=np):
     Returns:
       - col: 2D array of shape (N*out_h*out_w, C*filter_h*filter_w)
     """
+    # N, C, H, W = input_data.shape
+
+    # # Determine padding for height and width
+    # if isinstance(pad, int):
+    #     # Use symmetric padding if pad is an int
+    #     pad_h = (pad, pad)
+    #     pad_w = (pad, pad)
+    # else:
+    #     # Assume pad is a tuple of tuples: ((pad_top, pad_bottom), (pad_left, pad_right))
+    #     pad_h, pad_w = pad
+
+    # # Pad the input
+    # img = xp.pad(input_data, ((0, 0), (0, 0), pad_h, pad_w), mode='constant')
+
+    # # Compute the output dimensions using the new padding amounts:
+    # out_h = (H + sum(pad_h) - filter_h) // stride + 1
+    # out_w = (W + sum(pad_w) - filter_w) // stride + 1
+    
+    # # Prepare a container for the patches
+    # col = xp.empty((N, C, filter_h, filter_w, out_h, out_w), dtype=input_data.dtype)
+    
+    # for y in range(filter_h):
+    #     y_max = y + stride * out_h
+    #     for x in range(filter_w):
+    #         x_max = x + stride * out_w
+    #         col[:, :, y, x, :, :] = img[:, :, y:y_max:stride, x:x_max:stride]
+    
+    # # Rearrange so that each patch becomes a row
+    # col = col.transpose(0, 4, 5, 1, 2, 3).reshape(N * out_h * out_w, -1)
+    # return col
+
     N, C, H, W = input_data.shape
 
-    # Determine padding for height and width
+    # Determine padding values
     if isinstance(pad, int):
-        # Use symmetric padding if pad is an int
-        pad_h = (pad, pad)
-        pad_w = (pad, pad)
+        pad_top = pad
+        pad_bottom = pad
+        pad_left = pad
+        pad_right = pad
     else:
-        # Assume pad is a tuple of tuples: ((pad_top, pad_bottom), (pad_left, pad_right))
-        pad_h, pad_w = pad
+        # Expect pad to be ((pad_top, pad_bottom), (pad_left, pad_right))
+        (pad_top, pad_bottom), (pad_left, pad_right) = pad
 
     # Pad the input
-    img = xp.pad(input_data, ((0, 0), (0, 0), pad_h, pad_w), mode='constant')
+    input_padded = xp.pad(input_data, ((0, 0), (0, 0), (pad_top, pad_bottom), (pad_left, pad_right)), mode='constant')
 
-    # Compute the output dimensions using the new padding amounts:
-    out_h = (H + sum(pad_h) - filter_h) // stride + 1
-    out_w = (W + sum(pad_w) - filter_w) // stride + 1
-    
-    # Prepare a container for the patches
-    col = xp.empty((N, C, filter_h, filter_w, out_h, out_w), dtype=input_data.dtype)
-    
-    for y in range(filter_h):
-        y_max = y + stride * out_h
-        for x in range(filter_w):
-            x_max = x + stride * out_w
-            col[:, :, y, x, :, :] = img[:, :, y:y_max:stride, x:x_max:stride]
-    
-    # Rearrange so that each patch becomes a row
-    col = col.transpose(0, 4, 5, 1, 2, 3).reshape(N * out_h * out_w, -1)
-    return col
+    # Compute output dimensions
+    out_h = (H + pad_top + pad_bottom - filter_h) // stride + 1
+    out_w = (W + pad_left + pad_right - filter_w) // stride + 1
+
+    # Get strides for the padded array
+    s0, s1, s2, s3 = input_padded.strides
+
+    # Build shape and strides for as_strided
+    shape = (N, C, out_h, out_w, filter_h, filter_w)
+    strides = (s0, s1, s2 * stride, s3 * stride, s2, s3)
+    cols = xp.lib.stride_tricks.as_strided(input_padded, shape=shape, strides=strides)
+
+    # Rearrange dimensions so that each patch becomes a row
+    cols = cols.transpose(0, 2, 3, 1, 4, 5).reshape(N * out_h * out_w, -1)
+    return cols
 
 
-def col2im(col, input_shape, filter_h, filter_w, stride=1, pad=0, xp=np):
+def col2im(cols, input_shape, filter_h, filter_w, stride=1, pad=0, xp=np):
     """
     Converts column representation back into image blocks.
     Input:
@@ -72,39 +103,72 @@ def col2im(col, input_shape, filter_h, filter_w, stride=1, pad=0, xp=np):
     Returns:
       - An array with shape (N, C, H, W)
     """
+    # N, C, H, W = input_shape
+
+    # # Determine padding for height and width.
+    # if isinstance(pad, int):
+    #     pad_h = (pad, pad)
+    #     pad_w = (pad, pad)
+    # else:
+    #     # Assume pad is a tuple of tuples: ((pad_top, pad_bottom), (pad_left, pad_right))
+    #     pad_h, pad_w = pad
+
+    # # Compute the output (padded) dimensions.
+    # out_h = (H + sum(pad_h) - filter_h) // stride + 1
+    # out_w = (W + sum(pad_w) - filter_w) // stride + 1
+
+    # # Reshape col into shape (N, out_h, out_w, C, filter_h, filter_w)
+    # # Then transpose to bring channels to the correct place.
+    # col = col.reshape(N, out_h, out_w, C, filter_h, filter_w).transpose(0, 3, 4, 5, 1, 2)
+
+    # # Instantiate an array for the padded image.
+    # padded_H = H + sum(pad_h) + stride - 1
+    # padded_W = W + sum(pad_w) + stride - 1
+    # img = xp.zeros((N, C, padded_H, padded_W), dtype=col.dtype)
+
+    # # Add up the contributions from col into the zeros array.
+    # for y in range(filter_h):
+    #     y_max = y + stride * out_h
+    #     for x in range(filter_w):
+    #         x_max = x + stride * out_w
+    #         img[:, :, y:y_max:stride, x:x_max:stride] += col[:, :, y, x, :, :]
+
+    # # Remove the padding.
+    # # Here we use pad_h[0] for the top and pad_w[0] for the left.
+    # return img[:, :, pad_h[0]:H + pad_h[0], pad_w[0]:W + pad_w[0]]
+
     N, C, H, W = input_shape
 
-    # Determine padding for height and width.
+    # Determine padding values
     if isinstance(pad, int):
-        pad_h = (pad, pad)
-        pad_w = (pad, pad)
+        pad_top = pad
+        pad_bottom = pad
+        pad_left = pad
+        pad_right = pad
     else:
-        # Assume pad is a tuple of tuples: ((pad_top, pad_bottom), (pad_left, pad_right))
-        pad_h, pad_w = pad
+        (pad_top, pad_bottom), (pad_left, pad_right) = pad
 
-    # Compute the output (padded) dimensions.
-    out_h = (H + sum(pad_h) - filter_h) // stride + 1
-    out_w = (W + sum(pad_w) - filter_w) // stride + 1
+    # Compute output dimensions from im2col
+    out_h = (H + pad_top + pad_bottom - filter_h) // stride + 1
+    out_w = (W + pad_left + pad_right - filter_w) // stride + 1
 
-    # Reshape col into shape (N, out_h, out_w, C, filter_h, filter_w)
-    # Then transpose to bring channels to the correct place.
-    col = col.reshape(N, out_h, out_w, C, filter_h, filter_w).transpose(0, 3, 4, 5, 1, 2)
+    # Reshape cols to (N, out_h, out_w, C, filter_h, filter_w)
+    cols_reshaped = cols.reshape(N, out_h, out_w, C, filter_h, filter_w).transpose(0, 3, 4, 5, 1, 2)
 
-    # Instantiate an array for the padded image.
-    padded_H = H + sum(pad_h) + stride - 1
-    padded_W = W + sum(pad_w) + stride - 1
-    img = xp.zeros((N, C, padded_H, padded_W), dtype=col.dtype)
+    # Prepare an output array with padding
+    H_padded = H + pad_top + pad_bottom
+    W_padded = W + pad_left + pad_right
+    img_padded = xp.zeros((N, C, H_padded, W_padded), dtype=cols.dtype)
 
-    # Add up the contributions from col into the zeros array.
+    # Instead of looping over the entire image, we only loop over the filter dimensions.
     for y in range(filter_h):
-        y_max = y + stride * out_h
+        y_end = y + stride * out_h
         for x in range(filter_w):
-            x_max = x + stride * out_w
-            img[:, :, y:y_max:stride, x:x_max:stride] += col[:, :, y, x, :, :]
+            # Accumulate the values from cols_reshaped into the appropriate region of img_padded.
+            img_padded[:, :, y:y_end:stride, x:x + stride * out_w] += cols_reshaped[:, :, y, x, :, :]
 
-    # Remove the padding.
-    # Here we use pad_h[0] for the top and pad_w[0] for the left.
-    return img[:, :, pad_h[0]:H + pad_h[0], pad_w[0]:W + pad_w[0]]
+    # Remove padding and return the original image dimensions.
+    return img_padded[:, :, pad_top:H_padded - pad_bottom, pad_left:W_padded - pad_right]
 
 
 # store functions used for processing data
