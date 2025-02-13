@@ -3,6 +3,7 @@ from network import Neural_Network
 from losses import Sparse_Categorical_Cross_Entropy
 from optimizers import Adam
 from metrics import Accuracy
+from utils import get_confusion_matrix, plot_confusion_matrix
 
 from tensorflow.keras.datasets import mnist
 import time
@@ -99,5 +100,8 @@ print(f"Training data shape: {x_train.shape}, Validation data shape: {x_val.shap
 
 ## RUN TRAINING ##
 print("Starting training...")
-classifier.train(data, epochs=1, batch_size=16)
+# classifier.train(data, epochs=1, batch_size=16)
 print("Training complete.")
+
+cm = get_confusion_matrix((x_val,y_val), classifier)
+plot_confusion_matrix(cm, 10)

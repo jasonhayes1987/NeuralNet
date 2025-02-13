@@ -12,8 +12,11 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.animation as animation
 from sklearn.metrics import confusion_matrix
+from tensorflow.image import resize
+from tensorflow import convert_to_tensor
 import itertools
 from glob import glob
+
 
 def im2col(input_data, filter_h, filter_w, stride=1, pad=0, xp=np):
     """
@@ -27,37 +30,6 @@ def im2col(input_data, filter_h, filter_w, stride=1, pad=0, xp=np):
     Returns:
       - col: 2D array of shape (N*out_h*out_w, C*filter_h*filter_w)
     """
-    # N, C, H, W = input_data.shape
-
-    # # Determine padding for height and width
-    # if isinstance(pad, int):
-    #     # Use symmetric padding if pad is an int
-    #     pad_h = (pad, pad)
-    #     pad_w = (pad, pad)
-    # else:
-    #     # Assume pad is a tuple of tuples: ((pad_top, pad_bottom), (pad_left, pad_right))
-    #     pad_h, pad_w = pad
-
-    # # Pad the input
-    # img = xp.pad(input_data, ((0, 0), (0, 0), pad_h, pad_w), mode='constant')
-
-    # # Compute the output dimensions using the new padding amounts:
-    # out_h = (H + sum(pad_h) - filter_h) // stride + 1
-    # out_w = (W + sum(pad_w) - filter_w) // stride + 1
-    
-    # # Prepare a container for the patches
-    # col = xp.empty((N, C, filter_h, filter_w, out_h, out_w), dtype=input_data.dtype)
-    
-    # for y in range(filter_h):
-    #     y_max = y + stride * out_h
-    #     for x in range(filter_w):
-    #         x_max = x + stride * out_w
-    #         col[:, :, y, x, :, :] = img[:, :, y:y_max:stride, x:x_max:stride]
-    
-    # # Rearrange so that each patch becomes a row
-    # col = col.transpose(0, 4, 5, 1, 2, 3).reshape(N * out_h * out_w, -1)
-    # return col
-
     N, C, H, W = input_data.shape
 
     # Determine padding values
@@ -103,40 +75,6 @@ def col2im(cols, input_shape, filter_h, filter_w, stride=1, pad=0, xp=np):
     Returns:
       - An array with shape (N, C, H, W)
     """
-    # N, C, H, W = input_shape
-
-    # # Determine padding for height and width.
-    # if isinstance(pad, int):
-    #     pad_h = (pad, pad)
-    #     pad_w = (pad, pad)
-    # else:
-    #     # Assume pad is a tuple of tuples: ((pad_top, pad_bottom), (pad_left, pad_right))
-    #     pad_h, pad_w = pad
-
-    # # Compute the output (padded) dimensions.
-    # out_h = (H + sum(pad_h) - filter_h) // stride + 1
-    # out_w = (W + sum(pad_w) - filter_w) // stride + 1
-
-    # # Reshape col into shape (N, out_h, out_w, C, filter_h, filter_w)
-    # # Then transpose to bring channels to the correct place.
-    # col = col.reshape(N, out_h, out_w, C, filter_h, filter_w).transpose(0, 3, 4, 5, 1, 2)
-
-    # # Instantiate an array for the padded image.
-    # padded_H = H + sum(pad_h) + stride - 1
-    # padded_W = W + sum(pad_w) + stride - 1
-    # img = xp.zeros((N, C, padded_H, padded_W), dtype=col.dtype)
-
-    # # Add up the contributions from col into the zeros array.
-    # for y in range(filter_h):
-    #     y_max = y + stride * out_h
-    #     for x in range(filter_w):
-    #         x_max = x + stride * out_w
-    #         img[:, :, y:y_max:stride, x:x_max:stride] += col[:, :, y, x, :, :]
-
-    # # Remove the padding.
-    # # Here we use pad_h[0] for the top and pad_w[0] for the left.
-    # return img[:, :, pad_h[0]:H + pad_h[0], pad_w[0]:W + pad_w[0]]
-
     N, C, H, W = input_shape
 
     # Determine padding values
@@ -225,77 +163,64 @@ def build_metric_figure(layers):
     
     return fig
 
-def animate(i, layers, metrics):
-    plt.cla()
+# def animate(network, metrics, plot1, plot2, plot_loss, plot_accuracy, plot_learning_rate):
+#     plt.cla()
     
-    for index, l in enumerate(layers):
-        plot1.imshow(l.weights, cmap="seismic", aspect='auto')
-        plot2.imshow(np.expand_dims(l.bias, axis=1).T, cmap="seismic", aspect='auto')
+#     for l in network.layers:
+#         plot1.imshow(l.weights, cmap="seismic", aspect='auto')
+#         plot2.imshow(np.expand_dims(l.bias, axis=1).T, cmap="seismic", aspect='auto')
         
-    # plot metric data
-    # plot loss    
-    # check if total loss exists in metric data (means network applies regularization)
-    if 'Total Loss' in network.metric_data:
-        plot_loss.plot(metrics['Total Loss'][:,0], label='total train', color='red', lw=1)
-        plot_loss.plot(metrics['Total Loss'][:,1], label='total validation', color='red', lw=1, alpha=0.5)
-        # plot regularizations if exist
-        if 'L2 Regularization' in network.metric_data:
-            plot_loss.plot(metrics['L2 Regularization'][:,0], label='L2 train', color='orange', lw=1)
-            plot_loss.plot(metrics['L2 Regularization'][:,1], label='L2 validation', color='orange', lw=1, alpha=0.5)
-        if 'L1 Regularization' in network.metric_data:
-            plot_loss.plot(metrics['L1 Regularization'][:,0], label='L1 train', color='purple', lw=1)
-            plot_loss.plot(metrics['L1 Regularization'][:,1], label='L1 validation', color='purple', lw=1, alpha=0.5)
-    plot_loss.plot(metrics['Sparse CXE'][:,0], label='loss train', color='blue', lw=1)
-    plot_loss.plot(metrics['Sparse CXE'][:,1], label='loss validation', color='blue', lw=1, alpha=0.5)
+#     # plot metric data
+#     # plot loss    
+#     # check if total loss exists in metric data (means network applies regularization)
+#     if 'Total Loss' in network.metric_data:
+#         plot_loss.plot(metrics['Total Loss'][:,0], label='total train', color='red', lw=1)
+#         plot_loss.plot(metrics['Total Loss'][:,1], label='total validation', color='red', lw=1, alpha=0.5)
+#         # plot regularizations if exist
+#         if 'L2 Regularization' in network.metric_data:
+#             plot_loss.plot(metrics['L2 Regularization'][:,0], label='L2 train', color='orange', lw=1)
+#             plot_loss.plot(metrics['L2 Regularization'][:,1], label='L2 validation', color='orange', lw=1, alpha=0.5)
+#         if 'L1 Regularization' in network.metric_data:
+#             plot_loss.plot(metrics['L1 Regularization'][:,0], label='L1 train', color='purple', lw=1)
+#             plot_loss.plot(metrics['L1 Regularization'][:,1], label='L1 validation', color='purple', lw=1, alpha=0.5)
+#     plot_loss.plot(metrics['Sparse CXE'][:,0], label='loss train', color='blue', lw=1)
+#     plot_loss.plot(metrics['Sparse CXE'][:,1], label='loss validation', color='blue', lw=1, alpha=0.5)
     
-    # plot accuracy
-    plot_accuracy.plot(metrics['Accuracy'][:,0], label='train', color='green', linewidth=1)
-    plot_accuracy.plot(metrics['Accuracy'][:,1], label='validation', color='green', alpha=0.3, linewidth=1)
+#     # plot accuracy
+#     plot_accuracy.plot(metrics['Accuracy'][:,0], label='train', color='green', linewidth=1)
+#     plot_accuracy.plot(metrics['Accuracy'][:,1], label='validation', color='green', alpha=0.3, linewidth=1)
     
-    # plot learning rate
-    plot_learning_rate.plot(metrics['Learning Rate'][:,0], label='train', color='red', linewidth=1)
+#     # plot learning rate
+#     plot_learning_rate.plot(metrics['Learning Rate'][:,0], label='train', color='red', linewidth=1)
 
-def get_confusion_matrix_from_generator(generator, data_path, model, num_images=None, image_size=(100,100)):
+def get_confusion_matrix(data:tuple, model:"Neural_Network"):
     """
     returns a confusion matrix generated from predictions made on images passed through an image data generator
 
     INPUTS
-    generator: generator instance
-    data_path: string, path to images to be passed through generator
-    model: Model, model used to make predictions on images
-    num_images: int, default=None, number of images to make predictions on. if None, will default to len(data_path)
-    image_size: tuple (int, int), default=(100,100), size to scale images to
+    data: tuple, tuple of (x,y)
+    model: Neural_Network, model used to make predictions on images
 
     RETURNS
     cm: confusion matrix
     """
-    if num_images == None:
-        # images = glob(validation_path + '/*/*.jp*g')
-        num_images = len(glob(data_path + '/*/*.jp*g'))
-    print('Generating Confusion Matrix', num_images)
-    predictions = []
-    targets= []
-    i = 0
-    n_images = 0
-    for x, y in generator.flow_from_directory(
-        data_path,
-        target_size = image_size,
-        shuffle = False):
-        i += 1
-        n_images += len(y)
-        if i % 50 == 0:
-            print(f'{n_images} images processed.')
-        p = model.predict(x)
-        p = np.argmax(p, axis=1)
-        y = np.argmax(y, axis=1)
-        predictions = np.concatenate((predictions, p))
-        targets = np.concatenate((targets, y))
-        if len(targets) >= num_images:
-            break    
+    print('Generating Confusion Matrix')
+    # Unpack data tuple
+    x,targets = data
+    predictions = model.predict(x)
+    predictions = model._xp.argmax(predictions, axis=1)
+    # If device = GPU, convert arrays to NumPy using .get()
+    if hasattr(predictions, "get"):
+        predictions = predictions.get()
+    if hasattr(targets, "get"):
+        targets = targets.get()
+    # targets = model._xp.argmax(y, axis=1)
     cm = confusion_matrix(targets, predictions)
     return cm
 
 def plot_confusion_matrix(confusion_matrix, classes, normalize = False, title = 'Confusion Matrix', cmap = plt.cm.Blues):
+    # Convert classes to a sequence by using range
+    classes = np.arange(classes)
     if normalize:
         confusion_matrix = confusion_matrix.astype('float') / confusion_matrix.sum(axis=1)[:, np.newaxis]
         print('Normalized Confusion Matrix')
@@ -307,7 +232,7 @@ def plot_confusion_matrix(confusion_matrix, classes, normalize = False, title = 
     plt.imshow(confusion_matrix, interpolation='nearest', cmap=cmap)
     plt.title(title)
     plt.colorbar()
-    tick_marks = np.arange(len(classes))
+    tick_marks = classes
     plt.xticks(tick_marks, classes, rotation=45)
     plt.yticks(tick_marks, classes)
 
@@ -324,3 +249,20 @@ def plot_confusion_matrix(confusion_matrix, classes, normalize = False, title = 
 
 def get_accuracy_from_confusion_matrix(confusion_matrix):
     return confusion_matrix.trace() / confusion_matrix.sum()
+
+def to_tf_tensor(x, model):
+    # Convert x to a TensorFlow tensor
+    # If using GPU (i.e. x is a cupy array), convert to a numpy array first.
+    if model._device == "GPU":
+        x_np = model._xp.asnumpy(x)
+    else:
+        x_np = x
+    return convert_to_tensor(x_np)
+
+def from_tf_tensor(x, model):
+    # Convert a TensorFlow tensor back to the model's array type (numpy or cupy)
+    x_np = x.numpy()
+    if model._device == "GPU":
+        return model._xp.asarray(x_np)
+    else:
+        return x_np

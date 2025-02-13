@@ -7,7 +7,7 @@ import losses as Losses
 import metrics as Metrics
 import optimizers as Optimizers
 import activations as Activations
-import utils as Utils
+# import utils as Utils
 import pickle
 import copy
 import matplotlib.pyplot as plt
@@ -277,44 +277,51 @@ class Neural_Network():
         # compute number of batches
         num_batches = np.ceil(self.data[0][0].shape[0] / batch_size).astype(np.int32)
         
-        if visualize:
-            # check to see if figure already exists and if not, create it
-            if len(plt.get_fignums()) == 0:
-                # get all dense layers from network
-                dense = [l for l in self.layers if isinstance(l, Layer.Dense)]
-                fig = plt.figure(tight_layout=True)
-                grid = fig.add_gridspec(1,3)
-                wb_grid = grid[0,0:2].subgridspec(nrows=int(np.ceil(len(self.layers)/2)), ncols=2)
-                metric_grid = grid[0,2].subgridspec(3,1)
+        # if visualize:
+        #     # check to see if figure already exists and if not, create it
+        #     if len(plt.get_fignums()) == 0:
+        #         # get all dense layers from network
+        #         dense = [l for l in self.layers if isinstance(l, Layer.Dense)]
+        #         #DEBUG
+        #         print(f'network dense layers:{dense}')
+        #         fig = plt.figure(tight_layout=True)
+        #         grid = fig.add_gridspec(1,3)
+        #         wb_grid = grid[0,0:2].subgridspec(nrows=int(np.ceil(len(self.layers)/2)), ncols=2)
+        #         metric_grid = grid[0,2].subgridspec(3,1)
 
-                for index, l in enumerate(self.layers):
-                    subgrid = wb_grid[int(np.floor(index/2)),index%2].subgridspec(3,1)
-                    plot1 = fig.add_subplot(subgrid[0:2,0])
-                    plot1.axes.yaxis.set_ticks(np.arange(l.weights.shape[0]))
-                    plot1.axes.xaxis.set_visible(False)
-                    plot1.grid(False)
-                    plot1.set_title(f'Layer {index}')
+        #         for index, l in enumerate(self.layers):
+        #             #DEBUG
+        #             print(f'layer {index} weights shape:{l.weights.shape}')
+        #             subgrid = wb_grid[int(np.floor(index/2)),index%2].subgridspec(3,1)
+        #             plot1 = fig.add_subplot(subgrid[0:2,0])
+        #             plot1.axes.yaxis.set_ticks(np.arange(l.weights.shape[0]))
+        #             plot1.axes.xaxis.set_visible(False)
+        #             plot1.grid(False)
+        #             plot1.set_title(f'Layer {index}')
 
-                    plot2 = fig.add_subplot(subgrid[2,0], sharex=plot1)
-                    plot2.axes.yaxis.set_visible(False)
-                    plot2.axes.xaxis.set_ticks(np.arange(l.weights.shape[1]))
-                    plot2.grid(False)      
+        #             plot2 = fig.add_subplot(subgrid[2,0], sharex=plot1)
+        #             plot2.axes.yaxis.set_visible(False)
+        #             plot2.axes.xaxis.set_ticks(np.arange(l.weights.shape[1]))
+        #             plot2.grid(False)      
 
-                plot_loss = fig.add_subplot(metric_grid[0,0])
-                plot_loss.axes.xaxis.set_visible(False)
-                plot_loss.set_title('Loss')
-                plot_loss.legend()
+        #         plot_loss = fig.add_subplot(metric_grid[0,0])
+        #         plot_loss.axes.xaxis.set_visible(False)
+        #         plot_loss.set_title('Loss')
+        #         plot_loss.legend()
 
-                plot_accuracy = fig.add_subplot(metric_grid[1,0])
-                plot_accuracy.axes.xaxis.set_visible(False)
-                plot_accuracy.set_title('Accuracy')
-                plot_accuracy.legend()
+        #         plot_accuracy = fig.add_subplot(metric_grid[1,0])
+        #         plot_accuracy.axes.xaxis.set_visible(False)
+        #         plot_accuracy.set_title('Accuracy')
+        #         plot_accuracy.legend()
 
-                plot_learning_rate = fig.add_subplot(metric_grid[2,0])
-                plot_learning_rate.set_title('Learning Rate')
+        #         plot_learning_rate = fig.add_subplot(metric_grid[2,0])
+        #         plot_learning_rate.set_title('Learning Rate')
 
-            # update graph animation with new data
-            ani = animation.FuncAnimation(fig, Utils.animate, fargs=(dense, self.metric_data,), interval=200)
+        #     # update graph animation with new data
+        #     ani = animation.FuncAnimation(fig, Utils.animate,
+        #                                   fargs=(dense, self.metric_data, plot1, plot2, plot_loss, plot_accuracy,
+        #                                          plot_learning_rate),
+        #                                   interval=200)
 
         for e in range(epochs):
             # shuffle the training data
