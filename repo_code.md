@@ -973,6 +973,12 @@ print("Adding channel dimension...")
 x_train = classifier._xp.expand_dims(x_train, axis=1)
 x_val = classifier._xp.expand_dims(x_val, axis=1)
 
+# Reduce training and validation sets to 1000 samples for testing
+x_train = x_train[:64]
+y_train = y_train[:64]
+x_val = x_val[:64]
+y_val = y_val[:64]
+
 # Package data
 data = [(x_train, y_train), (x_val, y_val)]
 print("Data preprocessing complete.")
@@ -980,11 +986,11 @@ print(f"Training data shape: {x_train.shape}, Validation data shape: {x_val.shap
 
 ## RUN TRAINING ##
 print("Starting training...")
-# classifier.train(data, epochs=1, batch_size=16)
+classifier.train(data, epochs=1, batch_size=16)
 print("Training complete.")
 
-cm = get_confusion_matrix((x_val,y_val), classifier, image_size=(100,100))
-plot_confusion_matrix(cm, y_val[0])
+cm = get_confusion_matrix((x_val,y_val), classifier)
+plot_confusion_matrix(cm, 10)
 ```
 
 
@@ -1000,9 +1006,10 @@ import losses as Losses
 import metrics as Metrics
 import optimizers as Optimizers
 import activations as Activations
-# import utils as Utils
+from utils import build_metric_figure
 import pickle
 import copy
+from IPython.display import display, clear_output
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.animation as animation
@@ -1410,7 +1417,12 @@ class Neural_Network():
                     table_rows.append(row)
 
                 print(f"Epoch {e:>2} Batch {b:>2}")
-                print(tabulate(table_rows, headers="keys", tablefmt="pretty"))                   
+                print(tabulate(table_rows, headers="keys", tablefmt="pretty"))
+
+            fig = build_metric_figure(self.metric_data, self.layers, num_batches)
+            clear_output(wait=True)  # Clears the previous plot
+            display(fig)  # Displays the updated figure
+            plt.close(fig)  # Prevents overlapping plots
 
                     
     def evaluate(self, data):
@@ -2106,9 +2118,10 @@ import matplotlib.gridspec as gridspec
 import matplotlib.animation as animation
 from sklearn.metrics import confusion_matrix
 from tensorflow.image import resize
+from tensorflow import convert_to_tensor
 import itertools
 from glob import glob
-from network import Neural_Network
+
 
 def im2col(input_data, filter_h, filter_w, stride=1, pad=0, xp=np):
     """
@@ -2221,39 +2234,72 @@ def train_test_split(x, y, split=0.2):
     
     return x_train, y_train, x_test, y_test
 
-def build_metric_figure(layers):
-    fig = plt.figure(tight_layout=True)
-    grid = fig.add_gridspec(1,3)
-    wb_grid = grid[0,0:2].subgridspec(nrows=int(np.ceil(len(layers)/2)), ncols=2)
-    metric_grid = grid[0,2].subgridspec(3,1)
+def build_metric_figure(metric_data, layers, num_batches_per_epoch=None):
+    """
+    Builds a figure that:
+      - Plots scalar metrics (loss, accuracy, etc.) over batches
+      - Plots weight evolution of Dense/Convolutional layers using contour plots
+      - Uses a secondary x-axis for epochs if num_batches_per_epoch is provided
 
-    for index, l in enumerate(layers):
-        subgrid = wb_grid[int(np.floor(index/2)),index%2].subgridspec(3,1)
-        plot1 = fig.add_subplot(subgrid[0:2,0])
-        plot1.axes.yaxis.set_ticks(np.arange(l.weights.shape[0]))
-        plot1.axes.xaxis.set_visible(False)
-        plot1.grid(False)
-        plot1.set_title(f'Layer {index}')
+    Parameters:
+      metric_data: dict containing recorded training metrics
+      layers: list of network layers
+      num_batches_per_epoch: integer, used to create an epoch x-axis
 
-        plot2 = fig.add_subplot(subgrid[2,0], sharex=plot1)
-        plot2.axes.yaxis.set_visible(False)
-        plot2.axes.xaxis.set_ticks(np.arange(l.weights.shape[1]))
-        plot2.grid(False)      
-
-    plot_loss = fig.add_subplot(metric_grid[0,0])
-    plot_loss.axes.xaxis.set_visible(False)
-    plot_loss.set_title('Loss')
-    plot_loss.legend()
-
-    plot_accuracy = fig.add_subplot(metric_grid[1,0])
-    plot_accuracy.axes.xaxis.set_visible(False)
-    plot_accuracy.set_title('Accuracy')
-    plot_accuracy.legend()
-
-    plot_learning_rate = fig.add_subplot(metric_grid[2,0])
-    plot_learning_rate.set_title('Learning Rate')
+    Returns:
+      fig: Matplotlib figure object
+    """
+    fig = plt.figure(constrained_layout=True, figsize=(15, 10))
+    gs = gridspec.GridSpec(nrows=2, ncols=2, figure=fig)
+    
+    # Subplot for loss and accuracy metrics
+    ax_metrics = fig.add_subplot(gs[0, 0])
+    ax_lr = fig.add_subplot(gs[0, 1])
+    ax_contour = fig.add_subplot(gs[1, :])
+    
+    # Plot scalar metrics (Loss, Accuracy, etc.)
+    for key, values in metric_data.items():
+        if "Loss" in key or "Accuracy" in key or "Precision" in key:
+            ax_metrics.plot(values, label=key)
+    ax_metrics.set_title("Loss and Accuracy Metrics")
+    ax_metrics.set_xlabel("Batch")
+    ax_metrics.legend()
+    
+    # Plot learning rate
+    if "Learning Rate" in metric_data:
+        ax_lr.plot(metric_data["Learning Rate"], label="Learning Rate", color='orange')
+        ax_lr.set_title("Learning Rate Over Batches")
+        ax_lr.set_xlabel("Batch")
+        ax_lr.legend()
+    
+    # Contour Plot for Weights vs. Loss
+    for layer in layers:
+        if hasattr(layer, "weights") and layer.weights.ndim == 2:
+            weights_evolution = np.array(to_numpy(metric_data.get(layer.name, [])))  # Shape: (num_batches, w, h)
+            loss_values = np.array(to_numpy(metric_data.get("Train Total Loss", [])))
+            
+            if weights_evolution.shape[0] > 1 and loss_values.shape[0] > 1:
+                X, Y = np.meshgrid(np.arange(weights_evolution.shape[1]), loss_values)
+                Z = np.array([np.mean(w) for w in weights_evolution])  # Aggregate weights per batch
+                
+                cont = ax_contour.contourf(X, Y, Z.reshape(len(loss_values), -1), levels=50, cmap='viridis')
+                fig.colorbar(cont, ax=ax_contour)
+                ax_contour.set_title(f"Weight Evolution for {layer.name}")
+                ax_contour.set_xlabel("Weight Index")
+                ax_contour.set_ylabel("Loss")
+                break  # Remove this to plot all layers in separate subplots
+    
+    # Secondary x-axis for epochs
+    if num_batches_per_epoch is not None:
+        def batch_to_epoch(x):
+            return x / num_batches_per_epoch
+        def epoch_to_batch(x):
+            return x * num_batches_per_epoch
+        secax = ax_metrics.secondary_xaxis('top', functions=(batch_to_epoch, epoch_to_batch))
+        secax.set_xlabel("Epoch")
     
     return fig
+
 
 # def animate(network, metrics, plot1, plot2, plot_loss, plot_accuracy, plot_learning_rate):
 #     plt.cla()
@@ -2285,38 +2331,34 @@ def build_metric_figure(layers):
 #     # plot learning rate
 #     plot_learning_rate.plot(metrics['Learning Rate'][:,0], label='train', color='red', linewidth=1)
 
-def get_confusion_matrix(data:tuple, model:Neural_Network, image_size=(100,100)):
+def get_confusion_matrix(data:tuple, model:"Neural_Network"):
     """
     returns a confusion matrix generated from predictions made on images passed through an image data generator
 
     INPUTS
     data: tuple, tuple of (x,y)
     model: Neural_Network, model used to make predictions on images
-    image_size: tuple (int, int), default=(100,100), size to scale images to
 
     RETURNS
     cm: confusion matrix
     """
     print('Generating Confusion Matrix')
     # Unpack data tuple
-    x,y = data
-    # Resize input if images (ndim > 2)
-    if x.ndim > 2:
-        # Format images
-        if x.ndim == 3: # Grayscale images
-            # Add channel dimension at 2nd dimension (axis 1)
-            x = model._xp.expand_dims(x, axis=1)
-        elif x.ndim == 4:
-            # Transpose to CHW format
-            x = x.transpose(0,3,1,2)
-        x = resize(x, image_size)
+    x,targets = data
     predictions = model.predict(x)
     predictions = model._xp.argmax(predictions, axis=1)
-    targets = model._xp.argmax(y, axis=1)
+    # If device = GPU, convert arrays to NumPy using .get()
+    if hasattr(predictions, "get"):
+        predictions = predictions.get()
+    if hasattr(targets, "get"):
+        targets = targets.get()
+    # targets = model._xp.argmax(y, axis=1)
     cm = confusion_matrix(targets, predictions)
     return cm
 
 def plot_confusion_matrix(confusion_matrix, classes, normalize = False, title = 'Confusion Matrix', cmap = plt.cm.Blues):
+    # Convert classes to a sequence by using range
+    classes = np.arange(classes)
     if normalize:
         confusion_matrix = confusion_matrix.astype('float') / confusion_matrix.sum(axis=1)[:, np.newaxis]
         print('Normalized Confusion Matrix')
@@ -2328,7 +2370,7 @@ def plot_confusion_matrix(confusion_matrix, classes, normalize = False, title = 
     plt.imshow(confusion_matrix, interpolation='nearest', cmap=cmap)
     plt.title(title)
     plt.colorbar()
-    tick_marks = np.arange(len(classes))
+    tick_marks = classes
     plt.xticks(tick_marks, classes, rotation=45)
     plt.yticks(tick_marks, classes)
 
@@ -2345,5 +2387,25 @@ def plot_confusion_matrix(confusion_matrix, classes, normalize = False, title = 
 
 def get_accuracy_from_confusion_matrix(confusion_matrix):
     return confusion_matrix.trace() / confusion_matrix.sum()
+
+def to_tf_tensor(x, model):
+    # Convert x to a TensorFlow tensor
+    # If using GPU (i.e. x is a cupy array), convert to a numpy array first.
+    if model._device == "GPU":
+        x_np = model._xp.asnumpy(x)
+    else:
+        x_np = x
+    return convert_to_tensor(x_np)
+
+def from_tf_tensor(x, model):
+    # Convert a TensorFlow tensor back to the model's array type (numpy or cupy)
+    x_np = x.numpy()
+    if model._device == "GPU":
+        return model._xp.asarray(x_np)
+    else:
+        return x_np
+    
+def to_numpy(x):
+    return x.get() if hasattr(x, "get") else x
 ```
 

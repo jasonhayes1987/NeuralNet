@@ -1,5 +1,7 @@
 ## IMPORTS ##
 from network import Neural_Network
+from layer import Dense
+from activations import Softmax
 from losses import Sparse_Categorical_Cross_Entropy
 from optimizers import Adam
 from metrics import Accuracy
@@ -18,7 +20,7 @@ device = 'GPU'
 print(f"Setting device to: {device}")
 loss = Sparse_Categorical_Cross_Entropy(device=device)
 optimizer = Adam(learning_rate=0.001, device=device)
-metrics = [Accuracy(device=device), loss]
+metrics = [Accuracy(device=device), loss, Dense]
 
 classifier.compile_model(loss=loss, optimizer=optimizer, metrics=metrics, device=device)
 print("Network compiled successfully.")
@@ -93,6 +95,12 @@ print("Adding channel dimension...")
 x_train = classifier._xp.expand_dims(x_train, axis=1)
 x_val = classifier._xp.expand_dims(x_val, axis=1)
 
+# Reduce training and validation sets to 1000 samples for testing
+x_train = x_train[:64]
+y_train = y_train[:64]
+x_val = x_val[:64]
+y_val = y_val[:64]
+
 # Package data
 data = [(x_train, y_train), (x_val, y_val)]
 print("Data preprocessing complete.")
@@ -100,7 +108,7 @@ print(f"Training data shape: {x_train.shape}, Validation data shape: {x_val.shap
 
 ## RUN TRAINING ##
 print("Starting training...")
-# classifier.train(data, epochs=1, batch_size=16)
+classifier.train(data, epochs=2, batch_size=16)
 print("Training complete.")
 
 cm = get_confusion_matrix((x_val,y_val), classifier)

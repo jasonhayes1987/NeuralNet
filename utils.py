@@ -129,39 +129,137 @@ def train_test_split(x, y, split=0.2):
     
     return x_train, y_train, x_test, y_test
 
-def build_metric_figure(layers):
-    fig = plt.figure(tight_layout=True)
-    grid = fig.add_gridspec(1,3)
-    wb_grid = grid[0,0:2].subgridspec(nrows=int(np.ceil(len(layers)/2)), ncols=2)
-    metric_grid = grid[0,2].subgridspec(3,1)
+def build_metric_figure(metric_data, layers, num_batches_per_epoch=None):
+    """
+    Builds a figure with:
+      - Top row split into two subplots:
+          * Left: Loss/CXE curves vs. batch
+          * Right: Accuracy/Precision curves vs. batch
+        (batch numbering starts at 1, so 1..N)
+      - Bottom row (merged columns): Contour plot for the last Dense layer (weights)
+        and last Softmax layer (outputs).
+      - Optional secondary x-axis on the top of the left subplot to show epochs
+        if num_batches_per_epoch is provided.
 
-    for index, l in enumerate(layers):
-        subgrid = wb_grid[int(np.floor(index/2)),index%2].subgridspec(3,1)
-        plot1 = fig.add_subplot(subgrid[0:2,0])
-        plot1.axes.yaxis.set_ticks(np.arange(l.weights.shape[0]))
-        plot1.axes.xaxis.set_visible(False)
-        plot1.grid(False)
-        plot1.set_title(f'Layer {index}')
+    Parameters:
+      metric_data: dict containing recorded training metrics.
+      layers: list of network layers.
+      num_batches_per_epoch: integer, used to create an epoch x-axis on the top of the loss subplot.
 
-        plot2 = fig.add_subplot(subgrid[2,0], sharex=plot1)
-        plot2.axes.yaxis.set_visible(False)
-        plot2.axes.xaxis.set_ticks(np.arange(l.weights.shape[1]))
-        plot2.grid(False)      
+    Returns:
+      fig: Matplotlib figure object.
+    """
+    # Create a figure with 2 rows, 2 columns. Top row: loss (left), accuracy (right). Bottom row: contour.
+    fig = plt.figure(constrained_layout=True, figsize=(12, 8))
+    gs = gridspec.GridSpec(nrows=2, ncols=2, figure=fig)
 
-    plot_loss = fig.add_subplot(metric_grid[0,0])
-    plot_loss.axes.xaxis.set_visible(False)
-    plot_loss.set_title('Loss')
-    plot_loss.legend()
+    # Subplots
+    ax_loss = fig.add_subplot(gs[0, 0])     # Left top: Loss
+    ax_acc = fig.add_subplot(gs[0, 1])      # Right top: Accuracy
+    ax_contour = fig.add_subplot(gs[1, :])  # Bottom row merges columns
 
-    plot_accuracy = fig.add_subplot(metric_grid[1,0])
-    plot_accuracy.axes.xaxis.set_visible(False)
-    plot_accuracy.set_title('Accuracy')
-    plot_accuracy.legend()
+    # 1) Separate the metrics: plot Loss/CXE on ax_loss, Accuracy/Precision on ax_acc
+    for key, values in metric_data.items():
+        # Shift x-values by +1 so the first batch is labeled 1, second is 2, etc.
+        xvals = np.arange(len(values)) + 1
+        yvals = to_numpy(values)
 
-    plot_learning_rate = fig.add_subplot(metric_grid[2,0])
-    plot_learning_rate.set_title('Learning Rate')
-    
+        # Check which subplot to use
+        if "Loss" in key or "CXE" in key:
+            ax_loss.plot(xvals, yvals, label=key)
+        elif "Accuracy" in key or "Precision" in key:
+            ax_acc.plot(xvals, yvals, label=key)
+
+    ax_loss.set_title("Loss Metrics")
+    ax_loss.set_xlabel("Batch")
+    ax_loss.legend()
+
+    ax_acc.set_title("Accuracy Metrics")
+    ax_acc.set_xlabel("Batch")
+    ax_acc.legend()
+
+    # 2) Optional secondary x-axis for epochs on the loss subplot
+    #    If you want the last batch to align with epoch=1.0, then for x=4 => 4/4=1.0
+    #    (assuming 4 total batches per epoch).
+    if num_batches_per_epoch is not None:
+        def batch_to_epoch(x):
+            return x / num_batches_per_epoch
+        def epoch_to_batch(x):
+            return x * num_batches_per_epoch
+        secax_loss = ax_loss.secondary_xaxis('top', functions=(batch_to_epoch, epoch_to_batch))
+        secax_loss.set_xlabel("Epoch")
+        secax_acc = ax_acc.secondary_xaxis('top', functions=(batch_to_epoch, epoch_to_batch))
+        secax_acc.set_xlabel("Epoch")
+
+    # 3) Figure out which loss array to use for the vertical axis in the contour plot.
+    #    If you prefer "Train Total Loss" or "Train Sparse CXE" or something else, adapt here.
+    if "Train Total Loss" in metric_data and len(metric_data["Train Total Loss"]) > 0:
+        loss_key = "Train Total Loss"
+    elif "Train Sparse CXE" in metric_data and len(metric_data["Train Sparse CXE"]) > 0:
+        loss_key = "Train Sparse CXE"
+    else:
+        loss_key = None
+
+    # Convert that chosen loss array to NumPy, or leave it None if not found
+    if loss_key is not None:
+        loss_values = np.array(to_numpy(metric_data[loss_key]))
+    else:
+        loss_values = None
+
+    # 4) Filter layers: last Dense with 2D weights, last Softmax
+    dense_layers = [lyr for lyr in layers if hasattr(lyr, 'weights') and lyr.weights.ndim == 2]
+    softmax_layers = [lyr for lyr in layers if lyr.name.lower().startswith('softmax')]
+    layers_to_plot = []
+    if dense_layers:
+        layers_to_plot.append(dense_layers[-1])
+    if softmax_layers:
+        layers_to_plot.append(softmax_layers[-1])
+
+    # 5) Contour plot for each selected layer in ax_contour
+    for layer in layers_to_plot:
+        if loss_values is None or len(loss_values) < 2:
+            continue  # Not enough data to form a 2D contour
+
+        # Dense layer case
+        if hasattr(layer, 'weights') and layer.weights.ndim == 2:
+            data_series = metric_data.get(layer.name, [])
+            weight_series = []
+            for entry in to_numpy(data_series):
+                # If it's [weights, bias], we only want weights
+                if isinstance(entry, (list, tuple)) and len(entry) > 0:
+                    w_matrix = entry[0]  # shape: (in_dim, out_dim)
+                    # For a 2D contour, we want a 2D array Z => shape (num_batches, something).
+                    # We'll average across axis=1 to get shape (in_dim,) per batch
+                    w_vector = np.mean(w_matrix, axis=1)
+                    weight_series.append(w_vector)
+                else:
+                    # fallback if entry is just weights
+                    w_vector = np.mean(entry, axis=1)
+                    weight_series.append(w_vector)
+
+            evolution = np.array(weight_series)  # shape => (num_batches, in_dim)
+            # Align with the length of loss_values if needed
+            min_len = min(evolution.shape[0], loss_values.shape[0])
+            evolution = evolution[:min_len, :]
+            cur_loss = loss_values[:min_len]
+
+            # We now create a meshgrid: x => weight index, y => loss
+            # So X = shape (num_batches, in_dim) or reversed
+            # We typically do X: 0..(in_dim-1), Y: cur_loss
+            # => shape: (min_len, in_dim)
+            if evolution.shape[0] < 2 or evolution.shape[1] < 2:
+                continue  # contourf needs at least a 2x2 array
+
+            X, Y = np.meshgrid(np.arange(evolution.shape[1]), cur_loss)
+            Z = evolution  # shape: (min_len, in_dim)
+            cont = ax_contour.contourf(X, Y, Z, levels=50, cmap='viridis')
+            fig.colorbar(cont, ax=ax_contour)
+            ax_contour.set_title(f"Weight Evolution for {layer.name}")
+            ax_contour.set_xlabel("Weight Index")
+            ax_contour.set_ylabel("Loss")
+
     return fig
+
 
 # def animate(network, metrics, plot1, plot2, plot_loss, plot_accuracy, plot_learning_rate):
 #     plt.cla()
@@ -225,10 +323,10 @@ def plot_confusion_matrix(confusion_matrix, classes, normalize = False, title = 
         confusion_matrix = confusion_matrix.astype('float') / confusion_matrix.sum(axis=1)[:, np.newaxis]
         print('Normalized Confusion Matrix')
     else:
-        print('Confusion Matrix, wihtout normalization')
+        print('Confusion Matrix, without normalization')
     print(confusion_matrix)
 
-    plt.figure(figsize=(15,15))
+    plt.figure(figsize=(10,6))
     plt.imshow(confusion_matrix, interpolation='nearest', cmap=cmap)
     plt.title(title)
     plt.colorbar()
@@ -266,3 +364,15 @@ def from_tf_tensor(x, model):
         return model._xp.asarray(x_np)
     else:
         return x_np
+    
+def to_numpy(x):
+    # Convert to numpy array if cupy array else return original
+    # If x is a list, tuple, or dict, function will parse recursively to convert each item
+    if isinstance(x, list):
+        return [to_numpy(i) for i in x]
+    elif isinstance(x, tuple):
+        return tuple(to_numpy(i) for i in x)
+    elif isinstance(x, dict):
+        return {k: to_numpy(v) for k, v in x.items()}
+    else:
+        return x.get() if hasattr(x, "get") else x
