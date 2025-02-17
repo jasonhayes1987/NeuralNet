@@ -21,34 +21,37 @@ A Conda environment file (`environment.yml`) is provided to simplify installatio
 ```bash
 conda env create -f environment.yml
 conda activate neuralnet-env
+```
 This will install all required dependencies, including NumPy, SciPy, scikit-learn, Matplotlib, and (optionally) CuPy for GPU support.
 
-Using pip
+### Using pip
 Clone the repository:
 
-bash
+```bash
 Copy
 git clone https://github.com/yourusername/NeuralNet.git
 cd NeuralNet
+```
 Install the required packages:
-
-bash
+```bash
 Copy
 pip install -r requirements.txt
+```
 
 Using Docker
 A Dockerfile is provided to build a containerized version of the project. To build and run the Docker container:
 
 Build the Docker Image:
 
-bash
+```bash
 Copy
 docker build -t neuralnet .
+```
 Run the Docker Container:
-
-bash
+```bash
 Copy
 docker run --gpus all -it --rm -p 8888:8888 neuralnet
+```
 Note: The --gpus all flag is used if you want to run the container with GPU support. Adjust the command based on your system's capabilities and your project needs.
 
 Alternatively, if you are using Visual Studio Code with a devcontainer, the .devcontainer/devcontainer.json file is configured to set up your development environment automatically.
@@ -57,7 +60,7 @@ Usage
 Building a Model
 Here is an example of constructing and training a simple neural network using the library:
 
-python
+```python
 Copy
 from network import Neural_Network
 from layer import Dense
@@ -84,6 +87,8 @@ model.add_Activation('softmax')
 # Train the model
 # Provide data as [(x_train, y_train), (x_val, y_val)]
 model.train(data, epochs=10, batch_size=32, plot=True, save_dir='model.h5')
+```
+
 Example Scripts
 MNIST Example: See models/mnist/mnist.py for an example of training a model on the MNIST dataset.
 California Housing Example: See models/calif_housing/calif_housing.py for a regression example using the California Housing dataset.
