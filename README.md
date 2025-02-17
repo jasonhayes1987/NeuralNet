@@ -38,7 +38,7 @@ Copy
 pip install -r requirements.txt
 ```
 
-Using Docker
+### Using Docker
 A Dockerfile is provided to build a containerized version of the project. To build and run the Docker container:
 
 Build the Docker Image:
