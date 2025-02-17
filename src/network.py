@@ -2,12 +2,12 @@
 import numpy as np
 import cupy as cp
 from sklearn.utils import shuffle
-import layer as Layer
-import losses as Losses
-import metrics as Metrics
-import optimizers as Optimizers
-import activations as Activations
-from utils import build_metric_figure
+import src.layer as Layer
+import src.losses as Losses
+import src.metrics as Metrics
+import src.optimizers as Optimizers
+import src.activations as Activations
+from src.utils import build_metric_figure
 import pickle
 import copy
 from IPython.display import display, clear_output

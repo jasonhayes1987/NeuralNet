@@ -4,7 +4,7 @@ import cupy as cp
 from cupyx.scipy.special import erf as cp_erf
 from scipy.stats import norm
 from scipy.special import erf
-from layer import Activation, Layer
+from src.layer import Activation, Layer
 
 # Stores all the activation functions that can be passed to the activation layer
 

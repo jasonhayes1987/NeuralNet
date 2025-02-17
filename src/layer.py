@@ -16,7 +16,7 @@ import numpy as np
 from scipy import signal
 import cupy as cp
 from cupyx.scipy import signal as c_signal
-from utils import im2col, col2im
+from src.utils import im2col, col2im
 
 class Layer:
     """

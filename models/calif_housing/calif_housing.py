@@ -1,12 +1,12 @@
 ## IMPORTS ##
-from network import Neural_Network
-from network import cp, np
-from layer import Dense
-from activations import Softmax
-from losses import Mean_Squared_Error, Loss
-from optimizers import Adam
-from metrics import Precision_Accuracy, R2, Metric
-from utils import train_test_split, Normalizer, to_numpy
+from src.network import Neural_Network
+from src.network import cp, np
+from src.layer import Dense
+from src.activations import Softmax
+from src.losses import Mean_Squared_Error, Loss
+from src.optimizers import Adam
+from src.metrics import Precision_Accuracy, R2, Metric
+from src.utils import train_test_split, Normalizer, to_numpy
 
 # from tensorflow.keras.datasets import california_housing
 from sklearn.datasets import fetch_california_housing
@@ -121,6 +121,6 @@ predictions = to_numpy(predictions)
 avg_diff = np.mean(predictions-y_test)
 diff_std = np.std(predictions-y_test)
 print(f'Prediction AVG error: ${100_000*avg_diff:.2f}')
-print(f'Prediction Std: ${100_000*diff_std:.2f}')
-print(f'Prediction Std value range: ${100_000*(avg_diff-diff_std):.2f} -> ${100_000*(avg_diff+diff_std):.2f}')
+print(f'Error Std: ${100_000*diff_std:.2f}')
+print(f'Prediction Error Range @ 1 Std: ${100_000*(avg_diff-diff_std):.2f} -> ${100_000*(avg_diff+diff_std):.2f}')
 print("Testing complete.")
