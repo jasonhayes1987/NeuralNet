@@ -28,13 +28,11 @@ This will install all required dependencies, including NumPy, SciPy, scikit-lear
 Clone the repository:
 
 ```bash
-Copy
 git clone https://github.com/yourusername/NeuralNet.git
 cd NeuralNet
 ```
 Install the required packages:
 ```bash
-Copy
 pip install -r requirements.txt
 ```
 
@@ -44,12 +42,10 @@ A Dockerfile is provided to build a containerized version of the project. To bui
 Build the Docker Image:
 
 ```bash
-Copy
 docker build -t neuralnet .
 ```
 Run the Docker Container:
 ```bash
-Copy
 docker run --gpus all -it --rm -p 8888:8888 neuralnet
 ```
 Note: The --gpus all flag is used if you want to run the container with GPU support. Adjust the command based on your system's capabilities and your project needs.
@@ -61,7 +57,6 @@ Building a Model
 Here is an example of constructing and training a simple neural network using the library:
 
 ```python
-Copy
 from network import Neural_Network
 from layer import Dense
 from activations import Relu, Softmax
