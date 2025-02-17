@@ -5,7 +5,7 @@ NeuralNet is a lightweight neural network library built entirely from scratch in
 ## Features
 
 - **Modular Architecture**: Easily build networks using layers such as Dense, Convolutional, Flatten, Dropout, Pooling, and Batch Normalization.
-- **Diverse Activations**: Includes Tanh, ReLU, ELU, GELU, Sigmoid, and Softmax.
+- **Robust Activation Set**: Includes Tanh, ReLU, ELU, GELU, Sigmoid, and Softmax.
 - **Multiple Loss Functions**: Supports Mean Squared Error and Sparse Categorical Cross Entropy.
 - **Optimizers**: Implements SGD, Adagrad, RMSprop, and Adam.
 - **Metrics**: Includes Accuracy, Precision Accuracy, and R2 score for evaluating performance.
