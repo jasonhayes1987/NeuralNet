@@ -52,8 +52,8 @@ Note: The --gpus all flag is used if you want to run the container with GPU supp
 
 Alternatively, if you are using Visual Studio Code with a devcontainer, the .devcontainer/devcontainer.json file is configured to set up your development environment automatically.
 
-Usage
-Building a Model
+## Usage
+### Building a Model
 Here is an example of constructing and training a simple neural network using the library:
 
 ```python
@@ -84,12 +84,13 @@ model.add_Activation('softmax')
 model.train(data, epochs=10, batch_size=32, plot=True, save_dir='model.h5')
 ```
 
-Example Scripts
-MNIST Example: See models/mnist/mnist.py for an example of training a model on the MNIST dataset.
+### Example Scripts
+MNIST Example: See models/mnist/mnist.py for an example of training a model on the MNIST dataset.  
+
 California Housing Example: See models/calif_housing/calif_housing.py for a regression example using the California Housing dataset.
 
-License
+## License
 This project is licensed under the MIT License. See the LICENSE file for details.
 
-Acknowledgements
+## Acknowledgements
 This project was built to demonstrate a neural network implementation from scratch in Python.
